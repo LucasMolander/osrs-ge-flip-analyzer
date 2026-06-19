@@ -1,10 +1,16 @@
-package main
+package core
 
 import (
 	"fmt"
 	"os"
 	"sort"
 	"time"
+)
+
+const (
+	Penalty1h  = 0.80
+	Penalty24h = 0.90
+	Penalty30d = 0.95
 )
 
 // FindLatestFile scans a directory and returns the path and timestamp of the latest file matching the prefix.
@@ -59,7 +65,10 @@ func formatCommas(n int64) string {
 	return string(out)
 }
 
-// formatCompact formats large GP values into a compact string (e.g. 1.25M, 450K).
+// formatCompact formats large GP values into a compact string with custom granularity:
+// - Less than 100k: full number (e.g. 95000)
+// - Up to 1M: 2 decimal places with "K" (e.g. 300.23K)
+// - 1M and beyond: 3 decimal places with "M" (e.g. 5.123M)
 func formatCompact(n int64) string {
 	absN := n
 	sign := ""
@@ -68,10 +77,10 @@ func formatCompact(n int64) string {
 		sign = "-"
 	}
 	if absN >= 1_000_000 {
-		return fmt.Sprintf("%s%.2fM", sign, float64(absN)/1_000_000.0)
+		return fmt.Sprintf("%s%.3fM", sign, float64(absN)/1_000_000.0)
 	}
-	if absN >= 1_000 {
-		return fmt.Sprintf("%s%.1fK", sign, float64(absN)/1_000.0)
+	if absN >= 100_000 {
+		return fmt.Sprintf("%s%.2fK", sign, float64(absN)/1_000.0)
 	}
 	return fmt.Sprintf("%s%d", sign, absN)
 }
@@ -84,6 +93,9 @@ func AnalyzePrices(
 	capitalThreshold int64,
 	volThreshold int64,
 	nudgeMultipliers map[int]float64,
+	hist1h map[string]HourlyVolume,
+	hist24h map[string]HourlyVolume,
+	hist30d map[string]HourlyVolume,
 ) []ReportItem {
 	var items []ReportItem
 
@@ -151,10 +163,43 @@ func AnalyzePrices(
 		roi := (float64(profitPerItem) / float64(lowMod)) * 100.0
 
 		// Capital Penalty Factor: K_cap / (K_cap + CapitalRequired)
+		// We lessen the penalty by 50% (impact of capital requirement is halved)
 		capitalFactor := float64(capitalThreshold) / float64(capitalThreshold+capitalRequired)
+		capitalFactor = 0.5 + 0.5*capitalFactor
 
-		// Volume Penalty Factor: Volume / (Volume + K_vol)
-		volumeFactor := float64(volume) / float64(volume+volThreshold)
+		// Volume Penalty Factors:
+		// A. Volume Ratio Factor/Filter:
+		// - If Volume >= Limit: 1.0 (no penalty)
+		// - If Volume <= 0.1 * Limit: 0.0 (completely filtered out)
+		// - Otherwise: scales quadratically (with penalty impact increased by 30%): 1.0 - 1.30 * ((Limit - Volume) / (0.9 * Limit))^2
+		volumeRatioFactor := 1.0
+		limitVal := float64(item.Limit)
+		volumeVal := float64(volume)
+		if volumeVal <= 0.1*limitVal {
+			continue // Filtered out by volume ratio!
+		} else if volumeVal < limitVal {
+			ratio := volumeVal / limitVal
+			penalty := (1.0 - ratio) / 0.9
+			volumeRatioFactor = 1.0 - 1.30*(penalty*penalty)
+			if volumeRatioFactor < 0 {
+				volumeRatioFactor = 0
+			}
+		}
+
+		// B. Absolute Volume Factor/Filter:
+		// - If Volume <= 10: completely filtered out
+		// - If Volume >= 100: 1.0 (no penalty)
+		// - Otherwise: scales quadratically down to 10 (with penalty impact increased by 30%): 1.0 - 1.30 * ((100 - Volume) / 90)^2
+		absoluteVolumeFactor := 1.0
+		if volumeVal <= 10 {
+			continue // Filtered out by absolute volume!
+		} else if volumeVal < 100 {
+			penalty := (100.0 - volumeVal) / 90.0
+			absoluteVolumeFactor = 1.0 - 1.30*(penalty*penalty)
+			if absoluteVolumeFactor < 0 {
+				absoluteVolumeFactor = 0
+			}
+		}
 
 		// Nudge multiplier from historical flips
 		nudge := 1.0
@@ -162,8 +207,62 @@ func AnalyzePrices(
 			nudge = val
 		}
 
+		// Calculate estimated current price
+		currentPrice := int64(0)
+		if price.High != nil && price.Low != nil {
+			currentPrice = (*price.High + *price.Low) / 2
+		} else if price.High != nil {
+			currentPrice = *price.High
+		} else if price.Low != nil {
+			currentPrice = *price.Low
+		} else {
+			// Fallback to current hourly average if latest prices are missing
+			if volData, ok := volumes[fmt.Sprintf("%d", id)]; ok {
+				if volData.AvgHighPrice != nil && volData.AvgLowPrice != nil {
+					currentPrice = (*volData.AvgHighPrice + *volData.AvgLowPrice) / 2
+				} else if volData.AvgHighPrice != nil {
+					currentPrice = *volData.AvgHighPrice
+				} else if volData.AvgLowPrice != nil {
+					currentPrice = *volData.AvgLowPrice
+				}
+			}
+		}
+
+		// Calculate trend penalties
+		trendMultiplier := 1.0
+		var trendIndicators []string
+		idStr := fmt.Sprintf("%d", id)
+
+		// 1-hour trend
+		if h1, ok := hist1h[idStr]; ok {
+			if avg1h, valid := getHistoricAvg(h1); valid && currentPrice < avg1h {
+				trendMultiplier *= Penalty1h
+				trendIndicators = append(trendIndicators, "↓1h")
+			}
+		}
+
+		// 24-hour trend
+		if h24, ok := hist24h[idStr]; ok {
+			if avg24h, valid := getHistoricAvg(h24); valid && currentPrice < avg24h {
+				trendMultiplier *= Penalty24h
+				trendIndicators = append(trendIndicators, "↓24h")
+			}
+		}
+
+		// 30-day trend
+		if h30, ok := hist30d[idStr]; ok {
+			if avg30d, valid := getHistoricAvg(h30); valid && currentPrice < avg30d {
+				trendMultiplier *= Penalty30d
+				trendIndicators = append(trendIndicators, "↓30d")
+			}
+		}
+
+		if len(trendIndicators) == 0 {
+			trendIndicators = []string{"↗"}
+		}
+
 		// Calculate final score
-		score := float64(potentialProfit) * capitalFactor * volumeFactor * nudge
+		score := float64(potentialProfit) * capitalFactor * volumeRatioFactor * absoluteVolumeFactor * nudge * trendMultiplier
 
 		items = append(items, ReportItem{
 			ID:              item.ID,
@@ -181,6 +280,8 @@ func AnalyzePrices(
 			Volume:          volume,
 			Score:           score,
 			NudgeMultiplier: nudge,
+			TrendMultiplier: trendMultiplier,
+			TrendIndicators: trendIndicators,
 			IsSink:          SinkItems[item.Name],
 		})
 	}
@@ -196,6 +297,18 @@ func AnalyzePrices(
 	return items
 }
 
+// getHistoricAvg calculates the average price of a historical HourlyVolume record.
+func getHistoricAvg(vol HourlyVolume) (int64, bool) {
+	if vol.AvgHighPrice != nil && vol.AvgLowPrice != nil {
+		return (*vol.AvgHighPrice + *vol.AvgLowPrice) / 2, true
+	} else if vol.AvgHighPrice != nil {
+		return *vol.AvgHighPrice, true
+	} else if vol.AvgLowPrice != nil {
+		return *vol.AvgLowPrice, true
+	}
+	return 0, false
+}
+
 // GenerateMarkdownReport returns a beautifully formatted markdown string representing the report.
 func GenerateMarkdownReport(items []ReportItem, timestamp int64, capThreshold, volThreshold int64, limit int) string {
 	t := time.Unix(timestamp, 0).UTC()
@@ -207,8 +320,8 @@ func GenerateMarkdownReport(items []ReportItem, timestamp int64, capThreshold, v
 	md += fmt.Sprintf("- **Configured Reference Volume ($K_{vol}$):** `%d trades/hour` (Penalizes low-liquidity items)\n\n", volThreshold)
 
 	md += "## Top Recommended Flips\n\n"
-	md += "| Rank | Item Name | Score | Potential Profit | Profit/Item | Raw Spread | Adj Spread (Buy $\\to$ Sell) | Limit | Capital Req | ROI | Vol (hr) |\n"
-	md += "| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n"
+	md += "| Rank | Item Name | Score | Potential Profit | Profit/Item | Raw Spread | Adj Spread (Buy $\\to$ Sell) | Limit | Capital Req | ROI | Vol (hr) | Trend |\n"
+	md += "| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n"
 
 	displayLimit := limit
 	if len(items) < displayLimit {
@@ -230,7 +343,17 @@ func GenerateMarkdownReport(items []ReportItem, timestamp int64, capThreshold, v
 			nudgeStr = fmt.Sprintf(" *(x%.2f)*", item.NudgeMultiplier)
 		}
 
-		md += fmt.Sprintf("| %d | %s | %.1f%s | **%s** | %s | %s | %s | %s | %s | %.2f%% | %d |\n",
+		trendStr := ""
+		if len(item.TrendIndicators) > 0 {
+			for idx, ind := range item.TrendIndicators {
+				if idx > 0 {
+					trendStr += " "
+				}
+				trendStr += ind
+			}
+		}
+
+		md += fmt.Sprintf("| %d | %s | %.1f%s | **%s** | %s | %s | %s | %s | %s | %.2f%% | %d | %s |\n",
 			i+1,
 			nameStr,
 			item.Score,
@@ -243,6 +366,7 @@ func GenerateMarkdownReport(items []ReportItem, timestamp int64, capThreshold, v
 			formatCompact(item.CapitalRequired),
 			item.ROI,
 			item.Volume,
+			trendStr,
 		)
 	}
 

@@ -1,4 +1,4 @@
-package main
+package core
 
 import "time"
 
@@ -52,6 +52,19 @@ type FlipRecord struct {
 	Notes     string    `json:"notes,omitempty"`
 }
 
+// FailedBuyRecord represents an unsuccessful or partially filled buy order.
+type FailedBuyRecord struct {
+	ItemID      int       `json:"item_id"`
+	ItemName    string    `json:"item_name"`
+	TargetQty   int       `json:"target_qty"`   // How many we tried to buy (limit)
+	BoughtQty   int       `json:"bought_qty"`   // How many actually bought
+	BuyPrice    int64     `json:"buy_price"`    // Price per item we bid
+	TimeSpent   string    `json:"time_spent"`   // E.g., "10m", "30s", "1h"
+	ReportScore float64   `json:"report_score"` // The score of the item when we bid
+	Timestamp   time.Time `json:"timestamp"`
+	Notes       string    `json:"notes,omitempty"`
+}
+
 // ReportItem represents a completed analysis entry for an item, sorted and ranked.
 type ReportItem struct {
 	ID              int     `json:"id"`
@@ -67,9 +80,11 @@ type ReportItem struct {
 	CapitalRequired int64   `json:"capital_required"`
 	ROI             float64 `json:"roi"`
 	Volume          int64   `json:"volume"`
-	Score           float64 `json:"score"`
-	NudgeMultiplier float64 `json:"nudge_multiplier"`
-	IsSink          bool    `json:"is_sink"`
+	Score           float64  `json:"score"`
+	NudgeMultiplier float64  `json:"nudge_multiplier"`
+	TrendMultiplier float64  `json:"trend_multiplier"`
+	TrendIndicators []string `json:"trend_indicators"`
+	IsSink          bool     `json:"is_sink"`
 }
 
 // SinkItems is a set of items regulated via the OSRS item sink mechanism.

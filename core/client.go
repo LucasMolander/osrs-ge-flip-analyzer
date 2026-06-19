@@ -1,4 +1,4 @@
-package main
+package core
 
 import (
 	"encoding/json"
@@ -85,4 +85,14 @@ func (c *OSRSClient) FetchItemMapping() ([]ItemMetadata, error) {
 		return nil, err
 	}
 	return response, nil
+}
+
+// FetchHistoricalPrices retrieves the 1-hour average prices and volumes at a specific historical timestamp.
+func (c *OSRSClient) FetchHistoricalPrices(timestamp int64) (map[string]HourlyVolume, error) {
+	url := fmt.Sprintf("%s?timestamp=%d", baseURL1h, timestamp)
+	var response HourlyVolumesResponse
+	if err := c.executeRequest(url, &response); err != nil {
+		return nil, err
+	}
+	return response.Data, nil
 }

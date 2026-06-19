@@ -38,3 +38,10 @@ item_data/
 flips/
 scripts/
 ge-analyzer
+
+# Terraform state and credentials
+.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfvars
+gcp-playground/env_metadata.sh

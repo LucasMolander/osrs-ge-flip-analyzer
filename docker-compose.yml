@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  analyzer-web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ge-analyzer:latest
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      # If you want to test GCS storage locally, you can uncomment these
+      # - GCS_BUCKET=your-bucket-name
+      # - GOOGLE_APPLICATION_CREDENTIALS=/app/credentials.json
+    volumes:
+      # Persistent volumes to preserve cached data and logs locally
+      - ./prices:/app/prices
+      - ./item_data:/app/item_data
+      - ./flips:/app/flips
+      - ./reports:/app/reports
+    restart: unless-stopped

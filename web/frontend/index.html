@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OSRS GE Flip Analyzer</title>
+    <!-- Modern Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=JetBrains+Mono&display=swap" rel="stylesheet">
+    <!-- Vue 3 via CDN -->
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+    <div id="app" class="app-container" v-cloak>
+        <div class="glass-header">
+            <div class="header-content">
+                <h1>OSRS GE Flip Analyzer</h1>
+                <p class="subtitle">Real-time predictive market arbitrage insights</p>
+            </div>
+            <div class="header-actions">
+                <button @click="fetchReport" class="btn btn-primary" :disabled="loading">
+                    <span v-if="loading">Scanning Market...</span>
+                    <span v-else>↻ Refresh Market</span>
+                </button>
+            </div>
+        </div>
+
+        <div v-if="error" class="error-banner">
+            {{ error }}
+        </div>
+
+        <div class="main-content">
+            <div v-if="loading && items.length === 0" class="loading-state">
+                <div class="spinner"></div>
+                <p>Initializing arbitrage algorithms...</p>
+            </div>
+
+            <div v-else-if="items.length > 0" class="table-container glass-panel">
+                <table class="flip-table">
+                    <thead>
+                        <tr>
+                            <th>Rank</th>
+                            <th>Item Name</th>
+                            <th>Score</th>
+                            <th>Pot. Profit</th>
+                            <th>Profit/ea</th>
+                            <th>Adj Spread</th>
+                            <th>Limit</th>
+                            <th>ROI</th>
+                            <th>Vol (hr)</th>
+                            <th>Trend</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr v-for="(item, index) in items" :key="item.item_id" :class="{'is-sink': item.is_sink}">
+                            <td>#{{ index + 1 }}</td>
+                            <td class="item-name">
+                                <a :href="'https://prices.runescape.wiki/osrs/item/' + item.item_id" target="_blank">
+                                    {{ item.name }}
+                                </a>
+                                <span v-if="item.is_sink" class="sink-badge" title="Item Sink">🔥</span>
+                            </td>
+                            <td class="score">{{ item.score.toFixed(1) }}</td>
+                            <td class="profit positive">{{ formatNumber(item.potential_profit) }}</td>
+                            <td class="profit">{{ formatNumber(item.profit_per_item) }}</td>
+                            <td class="spread">{{ formatNumber(item.low_mod) }} ➔ {{ formatNumber(item.high_mod) }}</td>
+                            <td>{{ formatNumber(item.buy_limit) }}</td>
+                            <td class="roi" :class="{'high-roi': item.roi > 10}">{{ item.roi.toFixed(1) }}%</td>
+                            <td>{{ formatNumber(item.volume) }}</td>
+                            <td class="trend">
+                                <span v-for="ind in item.trend_indicators" class="trend-indicator">{{ ind }}</span>
+                            </td>
+                            <td class="actions">
+                                <button @click="recordFlip(item)" class="btn-action success" title="Record Successful Flip">💰</button>
+                                <button @click="recordFailedBuy(item)" class="btn-action danger" title="Record Failed Buy">❌</button>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div v-else-if="!loading && items.length === 0" class="empty-state">
+                <p>No profitable flips found. Try adjusting constraints or wait for market movement.</p>
+            </div>
+        </div>
+
+        <!-- Modals -->
+        <div class="modal-overlay" v-if="showFlipModal || showFailedModal" @click.self="closeModals">
+            <!-- Record Flip Modal -->
+            <div class="modal glass-panel" v-if="showFlipModal">
+                <h2>Record Flip for {{ selectedItem?.name }}</h2>
+                <form @submit.prevent="submitFlip">
+                    <div class="form-group">
+                        <label>Quantity Flipped</label>
+                        <input type="number" v-model.number="flipForm.quantity" required min="1" :max="selectedItem?.buy_limit">
+                    </div>
+                    <div class="form-group">
+                        <label>Actual Buy Price (ea)</label>
+                        <input type="number" v-model.number="flipForm.buy_price" required min="1">
+                        <small>Target: {{ formatNumber(selectedItem?.low_mod) }}</small>
+                    </div>
+                    <div class="form-group">
+                        <label>Actual Sell Price (ea)</label>
+                        <input type="number" v-model.number="flipForm.sell_price" required min="1">
+                        <small>Target: {{ formatNumber(selectedItem?.high_mod) }}</small>
+                    </div>
+                    <div class="form-group">
+                        <label>Notes (Optional)</label>
+                        <input type="text" v-model="flipForm.note" placeholder="e.g. Instant buy/sell">
+                    </div>
+                    <div class="modal-actions">
+                        <button type="button" class="btn" @click="closeModals">Cancel</button>
+                        <button type="submit" class="btn btn-primary" :disabled="submitting">Save Flip</button>
+                    </div>
+                </form>
+            </div>
+
+            <!-- Record Failed Buy Modal -->
+            <div class="modal glass-panel" v-if="showFailedModal">
+                <h2>Record Failed Buy for {{ selectedItem?.name }}</h2>
+                <form @submit.prevent="submitFailedBuy">
+                    <div class="form-group">
+                        <label>Target Quantity</label>
+                        <input type="number" v-model.number="failedForm.target_qty" required min="1">
+                    </div>
+                    <div class="form-group">
+                        <label>Actually Bought</label>
+                        <input type="number" v-model.number="failedForm.bought_qty" required min="0" :max="failedForm.target_qty">
+                    </div>
+                    <div class="form-group">
+                        <label>Offer Price (ea)</label>
+                        <input type="number" v-model.number="failedForm.buy_price" required min="1">
+                    </div>
+                    <div class="form-group">
+                        <label>Time Spent</label>
+                        <input type="text" v-model="failedForm.time_spent" required placeholder="e.g. 1h, 10m">
+                    </div>
+                    <div class="form-group">
+                        <label>Notes (Optional)</label>
+                        <input type="text" v-model="failedForm.note" placeholder="e.g. Price spiked">
+                    </div>
+                    <div class="modal-actions">
+                        <button type="button" class="btn" @click="closeModals">Cancel</button>
+                        <button type="submit" class="btn btn-danger" :disabled="submitting">Record Failure</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Custom Vue App Logic -->
+    <script src="/js/app.js"></script>
+</body>
+</html>
