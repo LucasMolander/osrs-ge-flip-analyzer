@@ -30,3 +30,11 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# OSRS GE Flip Analyzer generated/cached directories
+prices/
+reports/
+item_data/
+flips/
+scripts/
+ge-analyzer
