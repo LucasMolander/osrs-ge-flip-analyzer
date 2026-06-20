@@ -81,7 +81,8 @@ createApp({
         'autocomplete-input': AutocompleteInput
     },
     setup() {
-        const currentTab = ref('report') // 'report', 'manual', 'history', 'settings'
+        const initialTab = window.location.hash.replace('#', '') || 'report'
+        const currentTab = ref(initialTab) // 'report', 'manual', 'history', 'settings'
         
         const items = ref([])
         const itemDict = ref([]) // For autocomplete
@@ -156,6 +157,24 @@ createApp({
                     ? valA - valB 
                     : valB - valA
             })
+        })
+
+        // Percentage computed properties for UI binding
+        const targetRoiPercent = computed({
+            get: () => localConfig.value ? Math.round(localConfig.value.target_roi * 100) : 0,
+            set: (val) => { if (localConfig.value) localConfig.value.target_roi = val / 100.0; }
+        })
+        const volatilityThresholdPercentUI = computed({
+            get: () => localConfig.value ? Math.round(localConfig.value.volatility_threshold_percent * 100) : 0,
+            set: (val) => { if (localConfig.value) localConfig.value.volatility_threshold_percent = val / 100.0; }
+        })
+        const spreadJitterHighPercent = computed({
+            get: () => localConfig.value ? Math.round(localConfig.value.spread_jitter_high_threshold * 100) : 0,
+            set: (val) => { if (localConfig.value) localConfig.value.spread_jitter_high_threshold = val / 100.0; }
+        })
+        const spreadJitterLowPercent = computed({
+            get: () => localConfig.value ? Math.round(localConfig.value.spread_jitter_low_threshold * 100) : 0,
+            set: (val) => { if (localConfig.value) localConfig.value.spread_jitter_low_threshold = val / 100.0; }
         })
         
         // Auth state
@@ -527,8 +546,17 @@ createApp({
 
         // Tab watcher
         Vue.watch(currentTab, (newTab) => {
+            window.location.hash = newTab
             if (newTab === 'report') fetchReport()
             if (newTab === 'history') fetchHistory()
+        })
+        
+        // Listen for hash changes
+        window.addEventListener('hashchange', () => {
+            const hashTab = window.location.hash.replace('#', '')
+            if (['report', 'manual', 'history', 'settings'].includes(hashTab)) {
+                currentTab.value = hashTab
+            }
         })
 
         onMounted(async () => {
@@ -541,16 +569,18 @@ createApp({
 
             checkAuth()
             if (isAuthenticated.value) {
-                // Initialize local config
+                // Initialize local config by merging saved values with current defaults
+                const defaults = await fetchDefaultConfig()
                 const storedConfig = localStorage.getItem('ge_analyzer_config')
                 if (storedConfig) {
                     try {
-                        localConfig.value = JSON.parse(storedConfig)
+                        const parsed = JSON.parse(storedConfig)
+                        localConfig.value = { ...defaults, ...parsed }
                     } catch (e) {
-                        localConfig.value = await fetchDefaultConfig()
+                        localConfig.value = defaults
                     }
                 } else {
-                    localConfig.value = await fetchDefaultConfig()
+                    localConfig.value = defaults
                 }
 
                 fetchItemDict()
@@ -570,7 +600,8 @@ createApp({
             handleFileUpload, restoreBackup, recordFlip, recordFailedBuy, closeModals,
             submitFlip, submitFailedBuy, submitManualFlip, submitManualFailedBuy,
             resetToDefaults, exportUserFile, importUserFile,
-            clearError
+            clearError,
+            targetRoiPercent, volatilityThresholdPercentUI, spreadJitterHighPercent, spreadJitterLowPercent
         }
     }
 }).mount('#app')

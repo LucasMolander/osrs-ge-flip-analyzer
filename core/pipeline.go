@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 	"math"
+	"sync"
 )
 
 func SaveJSON(dir, prefix string, timestamp int64, data interface{}) (string, error) {
@@ -12,6 +13,13 @@ func SaveJSON(dir, prefix string, timestamp int64, data interface{}) (string, er
 }
 
 func DownloadPrices(client *OSRSClient, timestamp int64) error {
+	// 0. Check if we already have recent data
+	_, latestTs, err := Store.FindLatestFile("prices", "prices")
+	if err == nil && (timestamp-latestTs) < 60 {
+		fmt.Printf("Data from the past minute (%d) already exists. Skipping download.\n", latestTs)
+		return nil
+	}
+
 	prices, err := client.FetchLatestPrices()
 	if err != nil {
 		return fmt.Errorf("fetching latest prices: %w", err)
@@ -83,6 +91,39 @@ func DownloadPrices(client *OSRSClient, timestamp int64) error {
 	if err != nil {
 		return fmt.Errorf("saving 30d historical prices: %w", err)
 	}
+	// 4. Fetch 24 continuous 5m ticks for Outlier Math
+	aligned5m := (timestamp / 300) * 300
+	rolling24 := make([]map[string]HourlyVolume, 24)
+	var wg sync.WaitGroup
+	var errMu sync.Mutex
+	var rollingErr error
+
+	for i := 0; i < 24; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			// i=0 means 5 minutes ago, i=23 means 120 minutes ago (we exclude the current tick)
+			tTick := aligned5m - int64((idx+1)*300)
+			tickData, err := client.FetchHistorical5m(tTick)
+			if err != nil {
+				errMu.Lock()
+				rollingErr = err
+				errMu.Unlock()
+				return
+			}
+			rolling24[idx] = tickData
+		}(i)
+	}
+	wg.Wait()
+
+	if rollingErr != nil {
+		return fmt.Errorf("fetching rolling 5m ticks: %w", rollingErr)
+	}
+
+	_, err = SaveJSON("prices", "prices_rolling_24", timestamp, rolling24)
+	if err != nil {
+		return fmt.Errorf("saving rolling 24 ticks: %w", err)
+	}
 
 	return nil
 }
@@ -117,10 +158,12 @@ func RunAnalysis(client *OSRSClient, capital, vol int64, limit int, forceDownloa
 			return nil, fmt.Errorf("error downloading prices: %w", err)
 		}
 	} else {
-		// Verify we at least have one cached file, if not, fetch anyway to prevent crashing
-		_, _, err := Store.FindLatestFile("prices", "prices")
-		if err != nil {
-			fmt.Println("No cached prices found. Fetching them now as fallback...")
+		// Verify we at least have one cached file of both prices and rolling_24.
+		// If not, fetch anyway to prevent crashing on boot.
+		_, _, err1 := Store.FindLatestFile("prices", "prices")
+		_, _, err2 := Store.FindLatestFile("prices", "prices_rolling_24")
+		if err1 != nil || err2 != nil {
+			fmt.Println("Missing required cached prices (like rolling_24). Fetching them now as fallback...")
 			if err := DownloadPrices(client, runTs); err != nil {
 				return nil, fmt.Errorf("error downloading prices during fallback: %w", err)
 			}
@@ -155,6 +198,10 @@ func RunAnalysis(client *OSRSClient, capital, vol int64, limit int, forceDownloa
 	prices30dPath, _, err := Store.FindLatestFile("prices", "prices_30d")
 	if err != nil {
 		return nil, fmt.Errorf("error locating latest 30d prices file: %w", err)
+	}
+	pricesRollingPath, _, err := Store.FindLatestFile("prices", "prices_rolling_24")
+	if err != nil {
+		return nil, fmt.Errorf("error locating latest rolling 24 prices file: %w", err)
 	}
 
 	// 3. Locate or fetch latest metadata file
@@ -211,11 +258,16 @@ func RunAnalysis(client *OSRSClient, capital, vol int64, limit int, forceDownloa
 		return nil, fmt.Errorf("error loading 30d prices from %s: %w", prices30dPath, err)
 	}
 
+	var rolling24 []map[string]HourlyVolume
+	if err := LoadJSON(pricesRollingPath, &rolling24); err != nil {
+		return nil, fmt.Errorf("error loading rolling 24 prices from %s: %w", pricesRollingPath, err)
+	}
+
 	// 5. Load historical nudges (calculated beforehand and passed in)
 	nudges := CalculateNudges(config, flips, failedSells)
 
 	// 6. Run analysis
-	reportItems := AnalyzePrices(prices, volumes, metadata, capital, vol, nudges, hist1h, hist24h, hist30d, vol5m, vol24h, filterName, config)
+	reportItems := AnalyzePrices(prices, volumes, metadata, nudges, hist1h, hist24h, hist30d, vol5m, vol24h, filterName, config, rolling24)
 
 	// 7. Save reports
 	_, err = SaveJSON("reports", "report", runTs, reportItems)
@@ -239,7 +291,6 @@ func LoadJSON(path string, target interface{}) error {
 func CalculateNudges(config *RankingConfig, flips []FlipRecord, failedSells []FailedSellRecord) map[int]float64 {
 	nudges := make(map[int]float64)
 	netNudges := make(map[int]float64)
-	weightSums := make(map[int]float64) // For calculating moving average
 
 	now := time.Now()
 
@@ -268,7 +319,6 @@ func CalculateNudges(config *RankingConfig, flips []FlipRecord, failedSells []Fa
 		}
 
 		netNudges[itemID] += weight * direction
-		weightSums[itemID] += weight
 	}
 
 	// 2. Process failed sells
@@ -286,24 +336,18 @@ func CalculateNudges(config *RankingConfig, flips []FlipRecord, failedSells []Fa
 		// Static heavy penalty per failed sell
 		direction := config.FailedSellPenalty
 		netNudges[itemID] += weight * direction
-		weightSums[itemID] += weight
 	}
 
-	// Calculate Exponential Moving Average (EMA) and apply to nudges
+	// Calculate Exponentially Decayed Sum
 	for itemID, sum := range netNudges {
-		totalWeight := weightSums[itemID]
-		avg := sum
-		if totalWeight > 0 {
-			avg = sum / totalWeight
-		}
 
-		multiplier := 1.0 + avg
-		// Clamp multiplier between configured min and max
+		multiplier := 1.0 + sum
+		// Clamp multiplier between configured min and an absolute max of 3.0
 		if multiplier < config.NudgeMin {
 			multiplier = config.NudgeMin
 		}
-		if multiplier > config.NudgeMax {
-			multiplier = config.NudgeMax
+		if multiplier > 3.0 {
+			multiplier = 3.0
 		}
 		nudges[itemID] = multiplier
 	}

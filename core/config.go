@@ -12,6 +12,19 @@ type RankingConfig struct {
 	TaxRate float64 `json:"tax_rate"` // Default: 0.02 (2%)
 	TaxCap  int64   `json:"tax_cap"`  // Default: 5000000
 
+	// User State & Filters
+	BaseCapital           int64   `json:"base_capital"`             // e.g. 100000000 (100M)
+	MinAbsoluteVolume          int64   `json:"min_absolute_volume"`           // e.g. 10
+	VolumeRatioFilterThreshold float64 `json:"volume_ratio_filter_threshold"` // e.g. 0.1
+
+	// Total Profit Scaling
+	TargetProfitBenchmark float64 `json:"target_profit_benchmark"` // e.g. 400000.0
+	ProfitRewardCap       float64 `json:"profit_reward_cap"`       // e.g. 5.0
+
+	// ROI Scaling
+	TargetROI    float64 `json:"target_roi"`     // e.g. 0.02
+	ROIRewardCap float64 `json:"roi_reward_cap"` // e.g. 2.0
+
 	// Modifiers for Flips (Values added to the base 1.0 multiplier)
 	FlipHalfLifeHours float64 `json:"flip_half_life_hours"` // Time for flip impact to halve (e.g. 24.0)
 	FlipModifierMeh   float64 `json:"flip_modifier_meh"`    // e.g. -0.10
@@ -28,27 +41,45 @@ type RankingConfig struct {
 	NudgeMax float64 `json:"nudge_max"` // e.g. 2.0
 
 	// Base Score Penalties
-	CapitalPenaltyBaseWeight  float64 `json:"capital_penalty_base_weight"`  // e.g. 0.5
-	CapitalPenaltyScaleWeight float64 `json:"capital_penalty_scale_weight"` // e.g. 0.5
 	VolumeRatioPenaltyMax     float64 `json:"volume_ratio_penalty_max"`     // e.g. 1.30
 	AbsoluteVolumePenaltyMax  float64 `json:"absolute_volume_penalty_max"`  // e.g. 1.30
 
 	// Price Trend Penalties (Multipliers applied when item price is crashing vs moving averages)
 	PriceTrendPenalty1h  float64 `json:"price_trend_penalty_1h"`  // e.g. 0.80
 	PriceTrendPenalty24h float64 `json:"price_trend_penalty_24h"` // e.g. 0.90
-	PriceTrendPenalty30d float64 `json:"price_trend_penalty_30d"` // e.g. 0.95
 
 	// Volume Spikes
 	VolumeSpike5mMultiplier  float64 `json:"volume_spike_5m_multiplier"`  // Reward for sudden 5m volume spike (e.g. 1.50)
 	VolumeSpike24hMultiplier float64 `json:"volume_spike_24h_multiplier"` // Reward for sudden 1h volume relative to 24h (e.g. 1.20)
+
+	// Price Outlier & Volatility Penalties
+	OutlierZScoreThreshold      float64 `json:"outlier_z_score_threshold"`     // e.g. 2.0
+	OutlierPenaltyMultiplier    float64 `json:"outlier_penalty_multiplier"`    // e.g. 0.5
+	VolatilityThresholdPercent  float64 `json:"volatility_threshold_percent"`  // e.g. 0.05
+	VolatilityPenaltyMultiplier float64 `json:"volatility_penalty_multiplier"` // e.g. 15.0
+
+	// Spread Jitter Penalties and Rewards
+	SpreadJitterHighThreshold     float64 `json:"spread_jitter_high_threshold"`     // e.g. 0.50
+	SpreadJitterLowThreshold      float64 `json:"spread_jitter_low_threshold"`      // e.g. 0.30
+	SpreadJitterPenaltyMultiplier float64 `json:"spread_jitter_penalty_multiplier"` // e.g. 10.0
+	SpreadJitterRewardMultiplier  float64 `json:"spread_jitter_reward_multiplier"`  // e.g. 1.20
+	SpreadSpikeThreshold          float64 `json:"spread_spike_threshold"`           // e.g. 2.0
+	SpreadSpikePenaltyMultiplier  float64 `json:"spread_spike_penalty_multiplier"`  // e.g. 2.0
 }
 
 // DefaultRankingConfig returns a configuration struct matching the original hardcoded values.
 func DefaultRankingConfig() *RankingConfig {
 	return &RankingConfig{
-		TaxRate:                   0.02,
-		TaxCap:                    5000000,
-		FlipHalfLifeHours:         168.0,
+		BaseCapital:                100_000_000,
+		TaxRate:                    0.02,
+		TaxCap:                     5_000_000,
+		MinAbsoluteVolume:          10,
+		VolumeRatioFilterThreshold: 0.1,
+		TargetProfitBenchmark:      400000.0,
+		ProfitRewardCap:            5.0,
+		TargetROI:                  0.02,
+		ROIRewardCap:               2.0,
+		FlipHalfLifeHours:          168.0,
 		FlipModifierMeh:           -0.10,
 		FlipModifierMid:           0.0,
 		FlipModifierGood:          0.10,
@@ -57,15 +88,22 @@ func DefaultRankingConfig() *RankingConfig {
 		FailedSellPenalty:         -0.40,
 		NudgeMin:                  0.05,
 		NudgeMax:                  2.0,
-		CapitalPenaltyBaseWeight:  0.5,
-		CapitalPenaltyScaleWeight: 0.5,
 		VolumeRatioPenaltyMax:     1.30,
 		AbsoluteVolumePenaltyMax:  1.30,
 		PriceTrendPenalty1h:       0.80,
 		PriceTrendPenalty24h:      0.90,
-		PriceTrendPenalty30d:      0.95,
-		VolumeSpike5mMultiplier:   1.50,
-		VolumeSpike24hMultiplier:  1.20,
+		VolumeSpike5mMultiplier:     1.50,
+		VolumeSpike24hMultiplier:      1.20,
+		OutlierZScoreThreshold:        2.0,
+		OutlierPenaltyMultiplier:      0.5,
+		VolatilityThresholdPercent:    0.05,
+		VolatilityPenaltyMultiplier:   15.0,
+		SpreadJitterHighThreshold:     0.50,
+		SpreadJitterLowThreshold:      0.30,
+		SpreadJitterPenaltyMultiplier: 10.0,
+		SpreadJitterRewardMultiplier:  1.20,
+		SpreadSpikeThreshold:          2.0,
+		SpreadSpikePenaltyMultiplier:  2.0,
 	}
 }
 
@@ -89,7 +127,7 @@ func LoadConfig(path string) (*RankingConfig, error) {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
 
-	config := &RankingConfig{}
+	config := DefaultRankingConfig()
 	if err := json.Unmarshal(data, config); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal config file %s: %w", path, err)
 	}

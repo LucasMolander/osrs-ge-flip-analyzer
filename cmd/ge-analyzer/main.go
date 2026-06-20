@@ -9,8 +9,10 @@ import (
 )
 
 func main() {
+	isServer := os.Getenv("PORT") != "" || (len(os.Args) >= 2 && os.Args[1] == "serve")
+
 	var err error
-	core.Store, err = core.NewStorage()
+	core.Store, err = core.NewStorage(isServer)
 	if err != nil {
 		log.Fatalf("Failed to initialize storage: %v", err)
 	}

@@ -99,6 +99,15 @@ resource "google_storage_bucket" "database" {
   location                    = var.region
   force_destroy               = true
   uniform_bucket_level_access = true
+
+  lifecycle_rule {
+    condition {
+      age = 7
+    }
+    action {
+      type = "Delete"
+    }
+  }
 }
 
 # --- Cloud Run Service Account ---
@@ -142,7 +151,7 @@ resource "google_cloud_run_v2_service" "server" {
         value = "gcs"
       }
       env {
-        name  = "GCS_BUCKET_NAME"
+        name  = "GCS_BUCKET"
         value = google_storage_bucket.database.name
       }
       env {
@@ -152,6 +161,10 @@ resource "google_cloud_run_v2_service" "server" {
       env {
         name  = "AUTH_PASSWORD"
         value = var.webapp_password
+      }
+      env {
+        name  = "CRON_SECRET"
+        value = random_password.cron_secret.result
       }
     }
   }
@@ -171,6 +184,31 @@ resource "google_cloud_run_v2_service_iam_member" "public_invoker" {
   name       = google_cloud_run_v2_service.server.name
   role       = "roles/run.invoker"
   member     = "allUsers"
+  depends_on = [google_cloud_run_v2_service.server]
+}
+
+resource "random_password" "cron_secret" {
+  length  = 32
+  special = false
+}
+
+# --- Cloud Scheduler ---
+resource "google_cloud_scheduler_job" "report_trigger" {
+  name             = "${var.service_name}-trigger"
+  description      = "Triggers the GE Analyzer Report Job every minute"
+  schedule         = "* * * * *" # Every minute
+  time_zone        = "UTC"
+  region           = var.region
+
+  http_target {
+    http_method = "POST"
+    uri         = "${google_cloud_run_v2_service.server.uri}/api/internal/cron-tick"
+
+    headers = {
+      "X-Cron-Secret" = random_password.cron_secret.result
+    }
+  }
+
   depends_on = [google_cloud_run_v2_service.server]
 }
 

@@ -81,7 +81,12 @@ func StartServer(port string, client *core.OSRSClient, capital, volThreshold int
 
 	// Main router
 	mux := http.NewServeMux()
-	mux.Handle("/api/", RateLimitMiddleware(authApiMux, limiter)) // All /api/ routes are authenticated and rate-limited
+	
+	// Cron Endpoint (Unauthenticated by Basic Auth, protected by CRON_SECRET)
+	mux.HandleFunc("/api/internal/cron-tick", app.apiCronTickHandler)
+
+	// All other /api/ routes are authenticated and rate-limited
+	mux.Handle("/api/", RateLimitMiddleware(authApiMux, limiter))
 
 	// Static File Server for the Vue 3 Frontend (Unauthenticated, but rate-limited)
 	fs := http.FileServer(http.Dir("./web/frontend"))

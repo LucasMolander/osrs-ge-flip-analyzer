@@ -118,3 +118,13 @@ func (c *OSRSClient) FetchHistoricalPrices(timestamp int64) (map[string]HourlyVo
 	}
 	return response.Data, nil
 }
+
+// FetchHistorical5m retrieves the 5-minute snapshot at a specific historical timestamp.
+func (c *OSRSClient) FetchHistorical5m(timestamp int64) (map[string]HourlyVolume, error) {
+	url := fmt.Sprintf("%s?timestamp=%d", baseURL5m, timestamp)
+	var response HourlyVolumesResponse
+	if err := c.executeRequest(url, &response); err != nil {
+		return nil, err
+	}
+	return response.Data, nil
+}

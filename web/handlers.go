@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"runtime/debug"
 
 	"github.com/lucasmolander/osrs-ge-flip-analyzer/core"
@@ -41,21 +42,19 @@ func (app *AppServer) apiReportHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req core.ReportRequest
-	config := app.Config
-	
+	configCopy := *app.Config
+	req.Config = &configCopy
+
 	if r.Method == http.MethodPost {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			sendError(w, err, "Invalid JSON payload", http.StatusBadRequest)
 			return
 		}
-		if req.Config != nil {
-			config = req.Config
-		}
 	}
+	config := req.Config
 
-	// Always skip download during web requests to prevent API rate limiting / latency.
-	// A background cron job should ideally update the prices.
-	flips, err := core.RunAnalysis(app.Client, app.Capital, app.VolThreshold, app.Limit, false, "", config, req.Flips, req.FailedSells)
+	// Try to download fresh data, but DownloadPrices will skip if data < 60s old exists in Object Storage.
+	flips, err := core.RunAnalysis(app.Client, app.Capital, app.VolThreshold, app.Limit, true, "", config, req.Flips, req.FailedSells)
 	if err != nil {
 		sendError(w, err, "Failed to generate report", http.StatusInternalServerError)
 		return
@@ -72,4 +71,36 @@ func (app *AppServer) apiReportHandler(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewEncoder(w).Encode(topFlips); err != nil {
 		fmt.Printf("Error encoding JSON response: %v\n", err)
 	}
+}
+
+// apiCronTickHandler is triggered by Cloud Scheduler every minute.
+// It forces a download of new market prices and regenerates the database report.
+func (app *AppServer) apiCronTickHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		sendError(w, nil, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Verify the secret header to ensure this request came from our Cloud Scheduler
+	secret := os.Getenv("CRON_SECRET")
+	if secret == "" || r.Header.Get("X-Cron-Secret") != secret {
+		sendError(w, nil, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	fmt.Println("[Cron] Received 1-minute tick from Cloud Scheduler. Fetching market data...")
+
+	// forceDownload = true to actually pull new data from OSRS Wiki APIs
+	_, err := core.RunAnalysis(app.Client, app.Capital, app.VolThreshold, app.Limit, true, "", app.Config, nil, nil)
+	if err != nil {
+		fmt.Printf("[Cron] Error generating report: %v\n", err)
+		sendError(w, err, "Failed to generate background report", http.StatusInternalServerError)
+		return
+	}
+
+	fmt.Println("[Cron] Market data fetch and report generation complete.")
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`{"status": "ok"}`))
 }

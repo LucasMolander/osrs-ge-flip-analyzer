@@ -92,7 +92,8 @@ gcloud services enable \
     storage.googleapis.com \
     cloudbuild.googleapis.com \
     iamcredentials.googleapis.com \
-    iap.googleapis.com
+    iap.googleapis.com \
+    cloudscheduler.googleapis.com
 
 echo "Verifying API and IAM propagation (polling for up to 60 seconds)..."
 MAX_RETRIES=12

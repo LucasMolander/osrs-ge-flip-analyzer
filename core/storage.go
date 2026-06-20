@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"cloud.google.com/go/storage"
+	"google.golang.org/api/googleapi"
 	"google.golang.org/api/iterator"
 )
 
@@ -49,8 +50,12 @@ func (l *LocalStorage) Write(path string, data interface{}) (string, error) {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return "", fmt.Errorf("failed to create directory %s: %w", dir, err)
 	}
-	file, err := os.Create(path)
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644)
 	if err != nil {
+		if os.IsExist(err) {
+			// Race condition: file already exists, treat as success
+			return path, nil
+		}
 		return "", fmt.Errorf("failed to create file %s: %w", path, err)
 	}
 	defer file.Close()
@@ -69,7 +74,17 @@ func (l *LocalStorage) WriteRaw(path string, content []byte) error {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("failed to create directory %s: %w", dir, err)
 	}
-	return os.WriteFile(path, content, 0644)
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644)
+	if err != nil {
+		if os.IsExist(err) {
+			// Race condition: file already exists, treat as success
+			return nil
+		}
+		return fmt.Errorf("failed to create file %s: %w", path, err)
+	}
+	defer file.Close()
+	_, err = file.Write(content)
+	return err
 }
 
 // FindLatestFile locates the latest file matching the pattern in the local directory.
@@ -138,13 +153,20 @@ func (g *GCSStorage) ReadRaw(path string) ([]byte, error) {
 // Write encodes and writes JSON to a GCS object.
 func (g *GCSStorage) Write(path string, data interface{}) (string, error) {
 	ctx := context.Background()
-	wc := g.client.Bucket(g.bucketName).Object(path).NewWriter(ctx)
-	defer wc.Close()
+	wc := g.client.Bucket(g.bucketName).Object(path).If(storage.Conditions{DoesNotExist: true}).NewWriter(ctx)
 
 	encoder := json.NewEncoder(wc)
 	encoder.SetIndent("", "  ")
 	if err := encoder.Encode(data); err != nil {
+		wc.Close()
 		return "", fmt.Errorf("failed to encode JSON to GCS object %s: %w", path, err)
+	}
+	if err := wc.Close(); err != nil {
+		if gErr, ok := err.(*googleapi.Error); ok && gErr.Code == 412 {
+			// Precondition Failed: object already exists. Treat as success.
+			return fmt.Sprintf("gs://%s/%s", g.bucketName, path), nil
+		}
+		return "", fmt.Errorf("failed to flush GCS object %s: %w", path, err)
 	}
 	return fmt.Sprintf("gs://%s/%s", g.bucketName, path), nil
 }
@@ -152,11 +174,20 @@ func (g *GCSStorage) Write(path string, data interface{}) (string, error) {
 // WriteRaw writes raw bytes to a GCS object.
 func (g *GCSStorage) WriteRaw(path string, content []byte) error {
 	ctx := context.Background()
-	wc := g.client.Bucket(g.bucketName).Object(path).NewWriter(ctx)
-	defer wc.Close()
+	wc := g.client.Bucket(g.bucketName).Object(path).If(storage.Conditions{DoesNotExist: true}).NewWriter(ctx)
 
-	_, err := wc.Write(content)
-	return err
+	if _, err := wc.Write(content); err != nil {
+		wc.Close()
+		return err
+	}
+	if err := wc.Close(); err != nil {
+		if gErr, ok := err.(*googleapi.Error); ok && gErr.Code == 412 {
+			// Precondition Failed: object already exists. Treat as success.
+			return nil
+		}
+		return err
+	}
+	return nil
 }
 
 // FindLatestFile finds the latest JSON object matching prefix inside bucket/dir.
@@ -224,13 +255,15 @@ func (g *GCSStorage) ListDir(dir string) ([]string, error) {
 	return files, nil
 }
 
-// NewStorage returns a GCSStorage if GCS_BUCKET environment variable is set,
-// otherwise returns LocalStorage.
-func NewStorage() (Storage, error) {
+// NewStorage returns a GCSStorage if running in server mode (and requires GCS_BUCKET to be set).
+// Otherwise, it returns a LocalStorage for CLI mode.
+func NewStorage(isServer bool) (Storage, error) {
 	bucketName := os.Getenv("GCS_BUCKET")
 	if bucketName != "" {
 		ctx := context.Background()
 		return NewGCSStorage(ctx, bucketName)
 	}
+	
+	// CLI mode always uses local storage
 	return &LocalStorage{}, nil
 }

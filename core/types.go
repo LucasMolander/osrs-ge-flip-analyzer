@@ -82,6 +82,7 @@ type ReportItem struct {
 	ROI             float64 `json:"roi"`
 	Volume          int64   `json:"volume"`
 	Score           float64  `json:"score"`
+	ProfitMultiplier float64 `json:"profit_multiplier"`
 	NudgeMultiplier float64  `json:"nudge_multiplier"`
 	TrendMultiplier float64  `json:"trend_multiplier"`
 	PriceTrendIndicators  []string `json:"price_trend_indicators"`

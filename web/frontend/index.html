@@ -10,12 +10,29 @@
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <!-- Custom CSS -->
     <link rel="stylesheet" href="/css/style.css?v=13">
+    <style>
+        .form-row {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+        }
+        .form-row .form-group {
+            flex: 1;
+            min-width: 60px;
+            max-width: 120px;
+        }
+        .form-row .form-group input {
+            width: 100%;
+            max-width: 120px;
+        }
+    </style>
 </head>
 <body>
     <div id="app" class="app-container" v-cloak>
         <div class="glass-header">
             <div class="header-content">
-                <h1>OSRS GE Flip Analyzer</h1>
+                <h1 @click="currentTab = 'report'" style="cursor: pointer;" title="Back to Market Report">OSRS GE Flip Analyzer</h1>
                 <p class="subtitle">Real-time predictive market arbitrage insights</p>
             </div>
             <div class="header-actions">
@@ -98,7 +115,7 @@
                                 <th @click="sortBy('roi')" class="sortable">ROI <span v-show="sortConfig.key === 'roi'">{{ sortConfig.direction === 'asc' ? '▲' : '▼' }}</span></th>
                                 <th @click="sortBy('buy_limit')" class="sortable">Limit <span v-show="sortConfig.key === 'buy_limit'">{{ sortConfig.direction === 'asc' ? '▲' : '▼' }}</span></th>
                                 <th @click="sortBy('volume')" class="sortable">Vol (hr) <span v-show="sortConfig.key === 'volume'">{{ sortConfig.direction === 'asc' ? '▲' : '▼' }}</span></th>
-                                <th>Price Trend</th>
+                                <th title="HC: High Clamp | KC: Knife Crash | GM: Golden Margin | JP: Midpoint Jitter Penalty | SJP: Spread Jitter Penalty | SS: Solid Spread | SSP: Spread Spike Penalty | ↓: Downtrend">Price Trend ℹ️</th>
                                 <th>Vol Spike</th>
                                 <th title="Manually record a successful flip or failed sell to improve this item's future ranking score">Actions ℹ️</th>
                             </tr>
@@ -276,76 +293,179 @@
 
                     <form @submit.prevent="fetchReport">
                         <div class="config-section">
-                            <h3>Taxation</h3>
-                            <div class="form-group">
-                                <label>Tax Rate (e.g., 0.02 for 2%)</label>
-                                <input type="number" step="0.001" v-model.number="localConfig.tax_rate">
+                            <h3>Core Constraints</h3>
+                            
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label>Min Abs Vol</label>
+                                    <input type="number" v-model.number="localConfig.min_absolute_volume">
+                                </div>
+                                <div class="form-group">
+                                    <label>Vol Ratio Filter</label>
+                                    <input type="number" step="0.01" v-model.number="localConfig.volume_ratio_filter_threshold">
+                                </div>
+                                <div class="form-group">
+                                    <label>Base Capital (GP)</label>
+                                    <input type="number" v-model.number="localConfig.base_capital">
+                                </div>
                             </div>
-                            <div class="form-group">
-                                <label>Tax Cap (e.g., 5000000)</label>
-                                <input type="number" v-model.number="localConfig.tax_cap">
-                            </div>
+                            <p class="text-xs text-muted" style="margin-top: -10px; margin-bottom: 10px;">Base Capital: The benchmark for penalizing expensive flips.</p>
+                            
+                            
                         </div>
 
                         <div class="config-section">
                             <h3>Flips Modifiers</h3>
                             <p class="text-sm">Values added to the base 1.0 multiplier.</p>
-                            <div class="form-group">
-                                <label>Half Life (Hours)</label>
-                                <input type="number" v-model.number="localConfig.flip_half_life_hours">
-                            </div>
-                            <div class="form-group">
-                                <label>Modifier: Meh</label>
-                                <input type="number" step="0.01" v-model.number="localConfig.flip_modifier_meh">
-                            </div>
-                            <div class="form-group">
-                                <label>Modifier: Mid</label>
-                                <input type="number" step="0.01" v-model.number="localConfig.flip_modifier_mid">
-                            </div>
-                            <div class="form-group">
-                                <label>Modifier: Good</label>
-                                <input type="number" step="0.01" v-model.number="localConfig.flip_modifier_good">
-                            </div>
-                            <div class="form-group">
-                                <label>Modifier: Great</label>
-                                <input type="number" step="0.01" v-model.number="localConfig.flip_modifier_great">
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label>Half Life (Hours)</label>
+                                    <input type="number" v-model.number="localConfig.flip_half_life_hours">
+                                </div>
+                                <div class="form-group">
+                                    <label>Modifier: Meh</label>
+                                    <input type="number" step="0.01" v-model.number="localConfig.flip_modifier_meh">
+                                </div>
+                                <div class="form-group">
+                                    <label>Modifier: Mid</label>
+                                    <input type="number" step="0.01" v-model.number="localConfig.flip_modifier_mid">
+                                </div>
+                                <div class="form-group">
+                                    <label>Modifier: Good</label>
+                                    <input type="number" step="0.01" v-model.number="localConfig.flip_modifier_good">
+                                </div>
+                                <div class="form-group">
+                                    <label>Modifier: Great</label>
+                                    <input type="number" step="0.01" v-model.number="localConfig.flip_modifier_great">
+                                </div>
                             </div>
                         </div>
 
                         <div class="config-section">
-                            <h3>Failed Sells Modifiers</h3>
-                            <p class="text-sm">Values subtracted from the multiplier.</p>
-                            <div class="form-group">
-                                <label>Half Life (Hours)</label>
-                                <input type="number" v-model.number="localConfig.failed_sell_half_life_hours">
-                            </div>
-                            <div class="form-group">
-                                <label>Penalty</label>
-                                <input type="number" step="0.01" v-model.number="localConfig.failed_sell_penalty">
+                            <h3>Failed Sells Modifiers & Nudge Limits</h3>
+
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label>Nudge Min</label>
+                                    <input type="number" step="0.01" v-model.number="localConfig.nudge_min">
+                                </div>
+                                <div class="form-group">
+                                    <label>Nudge Max</label>
+                                    <input type="number" step="0.01" v-model.number="localConfig.nudge_max">
+                                </div>
+                                <div class="form-group">
+                                    <label>Half Life (Hrs)</label>
+                                    <input type="number" v-model.number="localConfig.failed_sell_half_life_hours">
+                                </div>
+                                <div class="form-group">
+                                    <label>Penalty</label>
+                                    <input type="number" step="0.01" v-model.number="localConfig.failed_sell_penalty">
+                                </div>
                             </div>
                         </div>
 
                         <div class="config-section">
                             <h3>Base Score & Trend Penalties</h3>
-                            <div class="form-group">
-                                <label>1h Trend Penalty</label>
-                                <input type="number" step="0.01" v-model.number="localConfig.price_trend_penalty_1h">
+
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label>Vol Ratio Pen</label>
+                                    <input type="number" step="0.01" v-model.number="localConfig.volume_ratio_penalty_max">
+                                </div>
+                                <div class="form-group">
+                                    <label>Abs Vol Pen</label>
+                                    <input type="number" step="0.01" v-model.number="localConfig.absolute_volume_penalty_max">
+                                </div>
+                                <div class="form-group">
+                                    <label>Target Profit GP</label>
+                                    <input type="number" step="1" v-model.number="localConfig.target_profit_benchmark">
+                                </div>
+                                <div class="form-group">
+                                    <label>Profit Reward Cap</label>
+                                    <input type="number" step="0.1" v-model.number="localConfig.profit_reward_cap">
+                                </div>
+                                <div class="form-group">
+                                    <label>Target ROI (%)</label>
+                                    <input type="number" step="1" v-model.number="targetRoiPercent">
+                                </div>
                             </div>
-                            <div class="form-group">
-                                <label>24h Trend Penalty</label>
-                                <input type="number" step="0.01" v-model.number="localConfig.price_trend_penalty_24h">
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label>ROI Reward Cap</label>
+                                    <input type="number" step="0.1" v-model.number="localConfig.roi_reward_cap">
+                                </div>
+                                <div class="form-group">
+                                    <label>1h Trend Pen</label>
+                                    <input type="number" step="0.01" v-model.number="localConfig.price_trend_penalty_1h">
+                                </div>
+                                <div class="form-group">
+                                    <label>24h Trend Pen</label>
+                                    <input type="number" step="0.01" v-model.number="localConfig.price_trend_penalty_24h">
+                                </div>
+                                <div class="form-group">
+                                    <label>5m Vol Reward</label>
+                                    <input type="number" step="0.01" v-model.number="localConfig.volume_spike_5m_multiplier">
+                                </div>
+                                <div class="form-group">
+                                    <label>24h Vol Reward</label>
+                                    <input type="number" step="0.01" v-model.number="localConfig.volume_spike_24h_multiplier">
+                                </div>
                             </div>
-                            <div class="form-group">
-                                <label>30d Trend Penalty</label>
-                                <input type="number" step="0.01" v-model.number="localConfig.price_trend_penalty_30d">
+                        </div>
+
+                        <div class="config-section">
+                            <h3>Price Outlier & Volatility Penalties</h3>
+                            <p class="text-sm">Penalizes severe spikes/crashes and highly volatile items.</p>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label>Z-Score Thr</label>
+                                    <input type="number" step="0.1" v-model.number="localConfig.outlier_z_score_threshold">
+                                </div>
+                                <div class="form-group">
+                                    <label>Outlier Pen</label>
+                                    <input type="number" step="0.01" v-model.number="localConfig.outlier_penalty_multiplier">
+                                </div>
+                                <div class="form-group">
+                                    <label>Step Vol (%)</label>
+                                    <input type="number" step="1" v-model.number="volatilityThresholdPercentUI">
+                                </div>
+                                <div class="form-group">
+                                    <label>Vol Penalty</label>
+                                    <input type="number" step="0.01" v-model.number="localConfig.volatility_penalty_multiplier">
+                                </div>
                             </div>
-                            <div class="form-group">
-                                <label>Volume Spike 5m Reward</label>
-                                <input type="number" step="0.01" v-model.number="localConfig.volume_spike_5m_multiplier">
+                        </div>
+
+                        <div class="config-section">
+                            <h3>Spread Jitter & Spike Penalties</h3>
+                            <p class="text-sm">Rewards solid margins, penalizes massive whipsaws in the spread.</p>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label>Jitter High (%)</label>
+                                    <input type="number" step="1" v-model.number="spreadJitterHighPercent">
+                                </div>
+                                <div class="form-group">
+                                    <label>Jitter Low (%)</label>
+                                    <input type="number" step="1" v-model.number="spreadJitterLowPercent">
+                                </div>
+                                <div class="form-group">
+                                    <label>Penalty Mult</label>
+                                    <input type="number" step="0.1" v-model.number="localConfig.spread_jitter_penalty_multiplier">
+                                </div>
+                                <div class="form-group">
+                                    <label>Reward Mult</label>
+                                    <input type="number" step="0.01" v-model.number="localConfig.spread_jitter_reward_multiplier">
+                                </div>
                             </div>
-                            <div class="form-group">
-                                <label>Volume Spike 24h Reward</label>
-                                <input type="number" step="0.01" v-model.number="localConfig.volume_spike_24h_multiplier">
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label>Spike Threshold (Ratio)</label>
+                                    <input type="number" step="0.1" v-model.number="localConfig.spread_spike_threshold">
+                                </div>
+                                <div class="form-group">
+                                    <label>Spike Penalty Multiplier</label>
+                                    <input type="number" step="0.1" v-model.number="localConfig.spread_spike_penalty_multiplier">
+                                </div>
                             </div>
                         </div>
 
@@ -399,6 +519,6 @@
     </div>
 
     <!-- Custom Vue App Logic -->
-    <script src="/js/app.js?v=5"></script>
+    <script src="/js/app.js?v=6"></script>
 </body>
 </html>
