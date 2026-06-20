@@ -45,24 +45,18 @@ type ItemMetadata struct {
 // FlipRecord represents a historical transaction logged by the user to nudge rankings.
 type FlipRecord struct {
 	ItemID    int       `json:"item_id"`
-	Quantity  int       `json:"quantity"`
-	BuyPrice  int64     `json:"buy_price"`  // Price per item bought
-	SellPrice int64     `json:"sell_price"` // Price per item sold
+	ItemName  string    `json:"item_name"`
+	Rating    string    `json:"rating"` // "Meh", "Mid", "Good", "Great"
 	Timestamp time.Time `json:"timestamp"`
 	Notes     string    `json:"notes,omitempty"`
 }
 
 // FailedBuyRecord represents an unsuccessful or partially filled buy order.
 type FailedBuyRecord struct {
-	ItemID      int       `json:"item_id"`
-	ItemName    string    `json:"item_name"`
-	TargetQty   int       `json:"target_qty"`   // How many we tried to buy (limit)
-	BoughtQty   int       `json:"bought_qty"`   // How many actually bought
-	BuyPrice    int64     `json:"buy_price"`    // Price per item we bid
-	TimeSpent   string    `json:"time_spent"`   // E.g., "10m", "30s", "1h"
-	ReportScore float64   `json:"report_score"` // The score of the item when we bid
-	Timestamp   time.Time `json:"timestamp"`
-	Notes       string    `json:"notes,omitempty"`
+	ItemID    int       `json:"item_id"`
+	ItemName  string    `json:"item_name"`
+	Timestamp time.Time `json:"timestamp"`
+	Notes     string    `json:"notes,omitempty"`
 }
 
 // ReportItem represents a completed analysis entry for an item, sorted and ranked.
@@ -83,7 +77,8 @@ type ReportItem struct {
 	Score           float64  `json:"score"`
 	NudgeMultiplier float64  `json:"nudge_multiplier"`
 	TrendMultiplier float64  `json:"trend_multiplier"`
-	TrendIndicators []string `json:"trend_indicators"`
+	PriceTrendIndicators  []string `json:"price_trend_indicators"`
+	VolumeSpikeIndicators []string `json:"volume_spike_indicators"`
 	IsSink          bool     `json:"is_sink"`
 }
 

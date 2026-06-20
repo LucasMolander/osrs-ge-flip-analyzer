@@ -129,7 +129,7 @@ func TestAnalyzePrices_TaxAndBuffer(t *testing.T) {
 	volThreshold := int64(1)
 	nudges := make(map[int]float64)
 
-	report := AnalyzePrices(prices, volumes, metadata, capitalThreshold, volThreshold, nudges, nil, nil, nil, nil, nil, "")
+	report := AnalyzePrices(prices, volumes, metadata, capitalThreshold, volThreshold, nudges, nil, nil, nil, nil, nil, "", DefaultRankingConfig())
 
 	// We expect 4 items (Cheap Item, Standard Item, Expensive Item, Twisted Bow). Narrow Spread Item is filtered.
 	if len(report) != 4 {
@@ -228,7 +228,7 @@ func TestAnalyzePrices_Heuristics(t *testing.T) {
 	volThreshold := int64(10)
 	nudges := make(map[int]float64)
 
-	report := AnalyzePrices(prices, volumes, metadata, capThreshold, volThreshold, nudges, nil, nil, nil, nil, nil, "")
+	report := AnalyzePrices(prices, volumes, metadata, capThreshold, volThreshold, nudges, nil, nil, nil, nil, nil, "", DefaultRankingConfig())
 
 	if len(report) != 2 {
 		t.Fatalf("Expected 2 items in report, got %d", len(report))
@@ -308,7 +308,7 @@ func TestAnalyzePrices_Heuristics(t *testing.T) {
 	capThresholdTest := int64(10000) // K_cap = 10,000 gp
 	volThresholdTest := int64(1)
 
-	reportCap := AnalyzePrices(pricesCap, volumesCap, metadataCap, capThresholdTest, volThresholdTest, nudges, nil, nil, nil, nil, nil, "")
+	reportCap := AnalyzePrices(pricesCap, volumesCap, metadataCap, capThresholdTest, volThresholdTest, nudges, nil, nil, nil, nil, nil, "", DefaultRankingConfig())
 
 	// Item 3: CapitalReq = 106 * 1000 = 106,000 gp. Potential Profit = 45 * 1000 = 45,000.
 	// CapitalFactor = 10,000 / (10,000 + 106,000) = 0.08620689
@@ -357,7 +357,7 @@ func TestAnalyzePrices_Nudge(t *testing.T) {
 		1: 1.5, // 50% boost from successful history
 	}
 
-	report := AnalyzePrices(prices, volumes, metadata, 1000000000, 1, nudges, nil, nil, nil, nil, nil, "")
+	report := AnalyzePrices(prices, volumes, metadata, 1000000000, 1, nudges, nil, nil, nil, nil, nil, "", DefaultRankingConfig())
 
 	if len(report) != 1 {
 		t.Fatalf("Expected 1 item in report, got %d", len(report))
@@ -454,7 +454,7 @@ func TestAnalyzePrices_TrendPenalties(t *testing.T) {
 	nudges := make(map[int]float64)
 
 	// Run analyzer
-	report := AnalyzePrices(prices, volumes, metadata, 1000000000, 1, nudges, hist1h, hist24h, hist30d, nil, nil, "")
+	report := AnalyzePrices(prices, volumes, metadata, 1000000000, 1, nudges, hist1h, hist24h, hist30d, nil, nil, "", DefaultRankingConfig())
 
 	if len(report) != 5 {
 		t.Fatalf("Expected 5 items in report, got %d", len(report))
@@ -467,30 +467,30 @@ func TestAnalyzePrices_TrendPenalties(t *testing.T) {
 	}
 
 	// Verify Item 1 (Stable): TrendMultiplier = 1.0, Indicators = ["↗"]
-	if res[1].TrendMultiplier != 1.0 || len(res[1].TrendIndicators) != 1 || res[1].TrendIndicators[0] != "↗" {
-		t.Errorf("Item 1 stable failed: TrendMultiplier=%f, Indicators=%v", res[1].TrendMultiplier, res[1].TrendIndicators)
+	if res[1].TrendMultiplier != 1.0 || len(res[1].PriceTrendIndicators) != 1 || res[1].PriceTrendIndicators[0] != "↗" {
+		t.Errorf("Item 1 stable failed: TrendMultiplier=%f, Indicators=%v", res[1].TrendMultiplier, res[1].PriceTrendIndicators)
 	}
 
 	// Verify Item 2 (Down 1h): TrendMultiplier = 0.80, Indicators = ["↓1h"]
-	if math.Abs(res[2].TrendMultiplier-0.80) > 1e-9 || len(res[2].TrendIndicators) != 1 || res[2].TrendIndicators[0] != "↓1h" {
-		t.Errorf("Item 2 down 1h failed: TrendMultiplier=%f, Indicators=%v", res[2].TrendMultiplier, res[2].TrendIndicators)
+	if math.Abs(res[2].TrendMultiplier-0.80) > 1e-9 || len(res[2].PriceTrendIndicators) != 1 || res[2].PriceTrendIndicators[0] != "↓1h" {
+		t.Errorf("Item 2 down 1h failed: TrendMultiplier=%f, Indicators=%v", res[2].TrendMultiplier, res[2].PriceTrendIndicators)
 	}
 
 	// Verify Item 3 (Down 24h): TrendMultiplier = 0.90, Indicators = ["↓24h"]
-	if math.Abs(res[3].TrendMultiplier-0.90) > 1e-9 || len(res[3].TrendIndicators) != 1 || res[3].TrendIndicators[0] != "↓24h" {
-		t.Errorf("Item 3 down 24h failed: TrendMultiplier=%f, Indicators=%v", res[3].TrendMultiplier, res[3].TrendIndicators)
+	if math.Abs(res[3].TrendMultiplier-0.90) > 1e-9 || len(res[3].PriceTrendIndicators) != 1 || res[3].PriceTrendIndicators[0] != "↓24h" {
+		t.Errorf("Item 3 down 24h failed: TrendMultiplier=%f, Indicators=%v", res[3].TrendMultiplier, res[3].PriceTrendIndicators)
 	}
 
 	// Verify Item 4 (Down 30d): TrendMultiplier = 0.95, Indicators = ["↓30d"]
-	if math.Abs(res[4].TrendMultiplier-0.95) > 1e-9 || len(res[4].TrendIndicators) != 1 || res[4].TrendIndicators[0] != "↓30d" {
-		t.Errorf("Item 4 down 30d failed: TrendMultiplier=%f, Indicators=%v", res[4].TrendMultiplier, res[4].TrendIndicators)
+	if math.Abs(res[4].TrendMultiplier-0.95) > 1e-9 || len(res[4].PriceTrendIndicators) != 1 || res[4].PriceTrendIndicators[0] != "↓30d" {
+		t.Errorf("Item 4 down 30d failed: TrendMultiplier=%f, Indicators=%v", res[4].TrendMultiplier, res[4].PriceTrendIndicators)
 	}
 
 	// Verify Item 5 (Down All): TrendMultiplier = 0.80 * 0.90 * 0.95 = 0.684, Indicators = ["↓1h", "↓24h", "↓30d"]
 	expectedAll := 0.80 * 0.90 * 0.95
-	if math.Abs(res[5].TrendMultiplier-expectedAll) > 1e-9 || len(res[5].TrendIndicators) != 3 ||
-		res[5].TrendIndicators[0] != "↓1h" || res[5].TrendIndicators[1] != "↓24h" || res[5].TrendIndicators[2] != "↓30d" {
-		t.Errorf("Item 5 down all failed: TrendMultiplier=%f, Indicators=%v", res[5].TrendMultiplier, res[5].TrendIndicators)
+	if math.Abs(res[5].TrendMultiplier-expectedAll) > 1e-9 || len(res[5].PriceTrendIndicators) != 3 ||
+		res[5].PriceTrendIndicators[0] != "↓1h" || res[5].PriceTrendIndicators[1] != "↓24h" || res[5].PriceTrendIndicators[2] != "↓30d" {
+		t.Errorf("Item 5 down all failed: TrendMultiplier=%f, Indicators=%v", res[5].TrendMultiplier, res[5].PriceTrendIndicators)
 	}
 
 	// Verify sorting order: Item 1 (Score factor 1.0) > Item 4 (0.95) > Item 3 (0.90) > Item 2 (0.80) > Item 5 (0.684)
@@ -534,7 +534,7 @@ func TestAnalyzePrices_AbsoluteVolumeFilter(t *testing.T) {
 	nudges := make(map[int]float64)
 
 	// Run analyzer
-	report := AnalyzePrices(prices, volumes, metadata, 1000000000, 1, nudges, nil, nil, nil, nil, nil, "")
+	report := AnalyzePrices(prices, volumes, metadata, 1000000000, 1, nudges, nil, nil, nil, nil, nil, "", DefaultRankingConfig())
 
 	// We expect only 2 items (Item 3 and 4) in the report. Item 1 and 2 are filtered out.
 	if len(report) != 2 {
@@ -606,73 +606,70 @@ func TestLoadNudges_FlipsAndFailedBuys(t *testing.T) {
 	// Price: buy = 100, sell = 120. Profit = 120 - 2 (tax) - 100 = 18 > 0.
 	// Direction = +0.10.
 	// Timestamp = now (age = 0, weight = 1.0)
-	flip1 := FlipRecord{
-		ItemID:    1,
-		Quantity:  100,
-		BuyPrice:  100,
-		SellPrice: 120,
-		Timestamp: now,
+	flip := FlipRecord{
+		ItemID:    4151, // Abyssal whip
+		ItemName:  "Abyssal whip",
+		Rating:    "Good",
+		Timestamp: time.Now().Add(-24 * time.Hour),
+		Notes:     "Good flip",
 	}
-	if err := saveJSONTest("flips", "flip_1", now.Unix(), flip1); err != nil {
-		t.Fatalf("Failed to save flip1: %v", err)
+	if err := saveJSONTest("flips", "flip_4151", now.Unix(), flip); err != nil {
+		t.Fatalf("Failed to save flip: %v", err)
 	}
 
-	// 4. Write a failed buy for Item 1
+	// 4. Write a failed buy for Item 4151
 	// Target = 1000, Bought = 0 (100% failure).
 	// Direction = -0.40 * 1.0 = -0.40.
 	// Timestamp = now (age = 0, weight = 1.0)
 	failed1 := FailedBuyRecord{
-		ItemID:    1,
-		TargetQty: 1000,
-		BoughtQty: 0,
-		BuyPrice:  100,
+		ItemID:    4151, // Same as flip to stack them
+		ItemName:  "Abyssal whip",
 		Timestamp: now,
 	}
-	if err := saveJSONTest("failed_buys", "failed_buy_1", now.Unix(), failed1); err != nil {
+	if err := saveJSONTest("failed_buys", "failed_buy_4151", now.Unix(), failed1); err != nil {
 		t.Fatalf("Failed to save failed1: %v", err)
 	}
 
-	// 5. Write a decayed failed buy for Item 2
+	// 5. Write a decayed failed buy for Item 11832
 	// Target = 1000, Bought = 500 (50% failure).
 	// Base direction = -0.40 * 0.5 = -0.20.
 	// Timestamp = now - 3 days (age = 3 days = 1 half-life, weight = 0.5)
 	// Expected direction = -0.20 * 0.5 = -0.10.
 	failed2 := FailedBuyRecord{
-		ItemID:    2,
-		TargetQty: 1000,
-		BoughtQty: 500,
-		BuyPrice:  100,
-		Timestamp: now.Add(-3 * 24 * time.Hour),
+		ItemID:    11832, // Bandos chestplate
+		ItemName:  "Bandos chestplate",
+		Timestamp: time.Now().Add(-48 * time.Hour),
+		Notes:     "Missed it",
 	}
-	if err := saveJSONTest("failed_buys", "failed_buy_2", now.Add(-3*24*time.Hour).Unix(), failed2); err != nil {
+	if err := saveJSONTest("failed_buys", "failed_buy_11832", now.Add(-48*time.Hour).Unix(), failed2); err != nil {
 		t.Fatalf("Failed to save failed2: %v", err)
 	}
 
 	// 6. Call LoadNudges()
-	multipliers, err := LoadNudges()
+	multipliers, err := LoadNudges(DefaultRankingConfig())
 	if err != nil {
 		t.Fatalf("loadNudges failed: %v", err)
 	}
 
 	// 7. Verify multipliers
-	// Item 1:
+	// Item 4151:
 	// Net Nudge = flip nudge (+0.10) + failed buy nudge (-0.40) = -0.30
 	// Expected Multiplier = 1.0 - 0.30 = 0.70
-	mult1, ok := multipliers[1]
+	mult1, ok := multipliers[4151]
 	if !ok {
-		t.Errorf("Expected multiplier for Item 1, but found none")
+		t.Errorf("Expected multiplier for Item 4151, but found none")
 	} else if math.Abs(mult1-0.70) > 0.01 {
-		t.Errorf("Item 1 multiplier: expected 0.70, got %f", mult1)
+		t.Errorf("Item 4151 multiplier: expected 0.70, got %f", mult1)
 	}
 
-	// Item 2:
-	// Net Nudge = failed buy nudge decayed (-0.10) = -0.10
-	// Expected Multiplier = 1.0 - 0.10 = 0.90
-	mult2, ok := multipliers[2]
+	// Item 11832:
+	// Net Nudge = failed buy nudge decayed (-0.40 * 0.62996) = -0.252
+	// Expected Multiplier = 1.0 - 0.252 = 0.748
+	mult2, ok := multipliers[11832]
 	if !ok {
-		t.Errorf("Expected multiplier for Item 2, but found none")
-	} else if math.Abs(mult2-0.90) > 0.01 {
-		t.Errorf("Item 2 multiplier: expected 0.90, got %f", mult2)
+		t.Errorf("Expected multiplier for Item 11832, but found none")
+	} else if math.Abs(mult2-0.748) > 0.01 {
+		t.Errorf("Item 11832 multiplier: expected 0.748, got %f", mult2)
 	}
 }
 

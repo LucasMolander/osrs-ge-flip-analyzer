@@ -37,7 +37,7 @@ reports/
 item_data/
 flips/
 scripts/
-ge-analyzer
+/ge-analyzer
 
 # Temporary JSON dumps
 snapshot*.json

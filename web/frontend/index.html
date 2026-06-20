@@ -9,7 +9,7 @@
     <!-- Vue 3 via CDN -->
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <!-- Custom CSS -->
-    <link rel="stylesheet" href="/css/style.css?v=8">
+    <link rel="stylesheet" href="/css/style.css?v=13">
 </head>
 <body>
     <div id="app" class="app-container" v-cloak>
@@ -70,7 +70,7 @@
             <div v-show="currentTab === 'report'">
                 <div class="tab-header">
                     <h2>Live Arbitrage Opportunities</h2>
-                    <button @click="fetchReport" class="btn btn-primary" :disabled="loading">
+                    <button @click="syncPrices" class="btn btn-primary" :disabled="loading">
                         <span v-if="loading">Scanning Market...</span>
                         <span v-else>↻ Refresh Report</span>
                     </button>
@@ -97,8 +97,8 @@
                                 <th>ROI</th>
                                 <th>Limit</th>
                                 <th>Vol (hr)</th>
-                                <th>Trend</th>
-                                <th>Vol Spikes</th>
+                                <th>Price Trend</th>
+                                <th>Vol Spike</th>
                                 <th title="Manually record a successful flip or failed buy to improve this item's future ranking score">Actions ℹ️</th>
                             </tr>
                         </thead>
@@ -121,10 +121,10 @@
                                 <td>{{ formatNumber(item.buy_limit) }}</td>
                                 <td>{{ formatNumber(item.volume) }}</td>
                                 <td class="trend">
-                                    {{ item.trend_indicators.filter(i => !i.includes('Spike')).join(', ') }}
+                                    {{ (item.price_trend_indicators || []).join(', ') }}
                                 </td>
                                 <td class="trend">
-                                    {{ item.trend_indicators.filter(i => i.includes('Spike')).map(ind => formatSpike(ind)).join(', ') }}
+                                    {{ (item.volume_spike_indicators || []).join(', ') }}
                                 </td>
                                 <td class="actions">
                                     <button @click="recordFlip(item)" class="btn-action success" title="Record Successful Flip">💰</button>
@@ -151,16 +151,13 @@
                             <autocomplete-input v-model="manualFlipForm.item" :options="itemDict" placeholder="Search for an item..."></autocomplete-input>
                         </div>
                         <div class="form-group">
-                            <label>Quantity Flipped</label>
-                            <input type="number" v-model.number="manualFlipForm.quantity" required min="1">
-                        </div>
-                        <div class="form-group">
-                            <label>Actual Buy Price (ea)</label>
-                            <input type="number" v-model.number="manualFlipForm.buy_price" required min="1">
-                        </div>
-                        <div class="form-group">
-                            <label>Actual Sell Price (ea)</label>
-                            <input type="number" v-model.number="manualFlipForm.sell_price" required min="1">
+                            <label>Rating</label>
+                            <select v-model="manualFlipForm.rating" required>
+                                <option value="Meh">Meh (Bad Flip)</option>
+                                <option value="Mid">Mid (Neutral)</option>
+                                <option value="Good">Good (Profitable)</option>
+                                <option value="Great">Great (Amazing Profit)</option>
+                            </select>
                         </div>
                         <div class="form-group">
                             <label>Notes (Optional)</label>
@@ -177,22 +174,6 @@
                         <div class="form-group">
                             <label>Item Name</label>
                             <autocomplete-input v-model="manualFailedForm.item" :options="itemDict" placeholder="Search for an item..."></autocomplete-input>
-                        </div>
-                        <div class="form-group">
-                            <label>Target Quantity</label>
-                            <input type="number" v-model.number="manualFailedForm.target_qty" required min="1">
-                        </div>
-                        <div class="form-group">
-                            <label>Actually Bought</label>
-                            <input type="number" v-model.number="manualFailedForm.bought_qty" required min="0" :max="manualFailedForm.target_qty">
-                        </div>
-                        <div class="form-group">
-                            <label>Offer Price (ea)</label>
-                            <input type="number" v-model.number="manualFailedForm.buy_price" required min="1">
-                        </div>
-                        <div class="form-group">
-                            <label>Time Spent</label>
-                            <input type="text" v-model="manualFailedForm.time_spent" required placeholder="e.g. 1h, 10m">
                         </div>
                         <div class="form-group">
                             <label>Notes (Optional)</label>
@@ -218,24 +199,20 @@
                                 <thead>
                                     <tr>
                                         <th>Date</th>
-                                        <th>Item ID</th>
-                                        <th>Qty</th>
-                                        <th>Buy</th>
-                                        <th>Sell</th>
-                                        <th>Profit</th>
+                                        <th>Item Name</th>
+                                        <th>Rating</th>
+                                        <th>Notes</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     <tr v-for="flip in flipsHistory" :key="flip.timestamp">
                                         <td>{{ formatDate(flip.timestamp) }}</td>
-                                        <td>{{ flip.item_id }}</td>
-                                        <td>{{ flip.quantity }}</td>
-                                        <td>{{ formatNumber(flip.buy_price) }}</td>
-                                        <td>{{ formatNumber(flip.sell_price) }}</td>
-                                        <td class="positive">{{ formatNumber((flip.sell_price - flip.buy_price) * flip.quantity) }}</td>
+                                        <td>{{ flip.item_name || flip.item_id }}</td>
+                                        <td :class="{ 'positive': flip.rating === 'Good' || flip.rating === 'Great', 'negative': flip.rating === 'Meh' }">{{ flip.rating }}</td>
+                                        <td class="text-muted">{{ flip.notes || '-' }}</td>
                                     </tr>
                                     <tr v-if="flipsHistory.length === 0">
-                                        <td colspan="6" class="text-muted text-center">No flips recorded.</td>
+                                        <td colspan="4" class="text-muted text-center">No flips recorded.</td>
                                     </tr>
                                 </tbody>
                             </table>
@@ -250,23 +227,17 @@
                                     <tr>
                                         <th>Date</th>
                                         <th>Item Name</th>
-                                        <th>Target</th>
-                                        <th>Bought</th>
-                                        <th>Offer</th>
-                                        <th>Time</th>
+                                        <th>Notes</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     <tr v-for="fail in failedBuysHistory" :key="fail.timestamp">
                                         <td>{{ formatDate(fail.timestamp) }}</td>
                                         <td>{{ fail.item_name || fail.item_id }}</td>
-                                        <td>{{ fail.target_qty }}</td>
-                                        <td>{{ fail.bought_qty }}</td>
-                                        <td>{{ formatNumber(fail.buy_price) }}</td>
-                                        <td>{{ fail.time_spent }}</td>
+                                        <td class="text-muted">{{ fail.notes || '-' }}</td>
                                     </tr>
                                     <tr v-if="failedBuysHistory.length === 0">
-                                        <td colspan="6" class="text-muted text-center">No failed buys recorded.</td>
+                                        <td colspan="3" class="text-muted text-center">No failed buys recorded.</td>
                                     </tr>
                                 </tbody>
                             </table>
@@ -324,18 +295,13 @@
                 <h2>Record Flip for {{ selectedItem?.name }}</h2>
                 <form @submit.prevent="submitFlip">
                     <div class="form-group">
-                        <label>Quantity Flipped</label>
-                        <input type="number" v-model.number="flipForm.quantity" required min="1" :max="selectedItem?.buy_limit">
-                    </div>
-                    <div class="form-group">
-                        <label>Actual Buy Price (ea)</label>
-                        <input type="number" v-model.number="flipForm.buy_price" required min="1">
-                        <small>Target: {{ formatNumber(selectedItem?.low_mod) }}</small>
-                    </div>
-                    <div class="form-group">
-                        <label>Actual Sell Price (ea)</label>
-                        <input type="number" v-model.number="flipForm.sell_price" required min="1">
-                        <small>Target: {{ formatNumber(selectedItem?.high_mod) }}</small>
+                        <label>Rating</label>
+                        <select v-model="flipForm.rating" required>
+                            <option value="Meh">Meh (Bad Flip)</option>
+                            <option value="Mid">Mid (Neutral)</option>
+                            <option value="Good">Good (Profitable)</option>
+                            <option value="Great">Great (Amazing Profit)</option>
+                        </select>
                     </div>
                     <div class="form-group">
                         <label>Notes (Optional)</label>
@@ -353,22 +319,6 @@
                 <h2>Record Failed Buy for {{ selectedItem?.name }}</h2>
                 <form @submit.prevent="submitFailedBuy">
                     <div class="form-group">
-                        <label>Target Quantity</label>
-                        <input type="number" v-model.number="failedForm.target_qty" required min="1">
-                    </div>
-                    <div class="form-group">
-                        <label>Actually Bought</label>
-                        <input type="number" v-model.number="failedForm.bought_qty" required min="0" :max="failedForm.target_qty">
-                    </div>
-                    <div class="form-group">
-                        <label>Offer Price (ea)</label>
-                        <input type="number" v-model.number="failedForm.buy_price" required min="1">
-                    </div>
-                    <div class="form-group">
-                        <label>Time Spent</label>
-                        <input type="text" v-model="failedForm.time_spent" required placeholder="e.g. 1h, 10m">
-                    </div>
-                    <div class="form-group">
                         <label>Notes (Optional)</label>
                         <input type="text" v-model="failedForm.note" placeholder="e.g. Price spiked">
                     </div>
@@ -382,6 +332,6 @@
     </div>
 
     <!-- Custom Vue App Logic -->
-    <script src="/js/app.js?v=4"></script>
+    <script src="/js/app.js?v=5"></script>
 </body>
 </html>

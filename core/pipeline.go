@@ -106,7 +106,8 @@ func DownloadMetadata(client *OSRSClient, timestamp int64) (map[int]ItemMetadata
 	return metadataMap, metadataFile, nil
 }
 
-func RunAnalysis(client *OSRSClient, capital int64, vol int64, limit int, forceDownload bool, filterName string) ([]ReportItem, error) {
+// RunAnalysis orchestrates the fetching of prices, parsing, scoring, and report generation.
+func RunAnalysis(client *OSRSClient, capital, vol int64, limit int, forceDownload bool, filterName string, config *RankingConfig) ([]ReportItem, error) {
 	runTs := time.Now().Unix()
 
 	// 1. Download unless skipped
@@ -211,14 +212,14 @@ func RunAnalysis(client *OSRSClient, capital int64, vol int64, limit int, forceD
 	}
 
 	// 5. Load historical nudges
-	nudges, err := LoadNudges()
+	nudges, err := LoadNudges(config)
 	if err != nil {
 		return nil, fmt.Errorf("error loading historical nudges: %w", err)
 	}
 
 	// 6. Run analysis
 	fmt.Println("Analyzing prices and generating report...")
-	reportItems := AnalyzePrices(prices, volumes, metadata, capital, vol, nudges, hist1h, hist24h, hist30d, vol5m, vol24h, filterName)
+	reportItems := AnalyzePrices(prices, volumes, metadata, capital, vol, nudges, hist1h, hist24h, hist30d, vol5m, vol24h, filterName, config)
 
 	// 7. Save reports
 	_, err = SaveJSON("reports", "report", runTs, reportItems)
@@ -239,16 +240,16 @@ func LoadJSON(path string, target interface{}) error {
 	return Store.Read(path, target)
 }
 
-func LoadNudges() (map[int]float64, error) {
+func LoadNudges(config *RankingConfig) (map[int]float64, error) {
 	nudges := make(map[int]float64)
 	netNudges := make(map[int]float64)
 
 	now := time.Now()
 
-	// 1. Process successful flips (7-day half-life)
+	// 1. Process successful flips
 	flipEntries, err := Store.ListDir("flips")
 	if err == nil {
-		halfLifeFlips := 7 * 24 * time.Hour
+		halfLifeFlips := time.Duration(config.FlipHalfLifeHours) * time.Hour
 		lambdaFlips := 0.69314718056 / halfLifeFlips.Seconds()
 
 		for _, name := range flipEntries {
@@ -272,20 +273,16 @@ func LoadNudges() (map[int]float64, error) {
 				}
 				weight := math.Exp(-lambdaFlips * age)
 
-				// GE tax on selling: 2%, capped at 5M
-				tax := int64(0)
-				if record.SellPrice >= 50 {
-					tax = int64(float64(record.SellPrice) * 0.02)
-					if tax > 5_000_000 {
-						tax = 5_000_000
-					}
-				}
-				revenuePerItem := record.SellPrice - tax
-				profitPerItem := revenuePerItem - record.BuyPrice
-
-				direction := 0.10 // Good flip: +10%
-				if profitPerItem <= 0 {
-					direction = -0.20 // Bad flip: -20%
+				direction := 0.0
+				switch record.Rating {
+				case "Meh":
+					direction = config.FlipModifierMeh
+				case "Mid":
+					direction = config.FlipModifierMid
+				case "Good":
+					direction = config.FlipModifierGood
+				case "Great":
+					direction = config.FlipModifierGreat
 				}
 
 				netNudges[itemID] += weight * direction
@@ -293,10 +290,10 @@ func LoadNudges() (map[int]float64, error) {
 		}
 	}
 
-	// 2. Process failed buys (3-day half-life)
+	// 2. Process failed buys
 	failedEntries, err := Store.ListDir("failed_buys")
 	if err == nil {
-		halfLifeFailed := 3 * 24 * time.Hour
+		halfLifeFailed := time.Duration(config.FailedBuyHalfLifeHours) * time.Hour
 		lambdaFailed := 0.69314718056 / halfLifeFailed.Seconds()
 
 		for _, name := range failedEntries {
@@ -320,17 +317,8 @@ func LoadNudges() (map[int]float64, error) {
 				}
 				weight := math.Exp(-lambdaFailed * age)
 
-				// Failure Ratio = 1.0 - (BoughtQty / TargetQty)
-				failureRatio := 1.0
-				if record.TargetQty > 0 {
-					failureRatio = 1.0 - (float64(record.BoughtQty) / float64(record.TargetQty))
-					if failureRatio < 0 {
-						failureRatio = 0
-					}
-				}
-
-				// Heavy penalty: max -40% score reduction for 100% failure
-				direction := -0.40 * failureRatio
+				// Static heavy penalty per failed buy
+				direction := config.FailedBuyPenalty
 				netNudges[itemID] += weight * direction
 			}
 		}
@@ -339,12 +327,12 @@ func LoadNudges() (map[int]float64, error) {
 	// 3. Compile and clamp multipliers
 	for itemID, netNudge := range netNudges {
 		multiplier := 1.0 + netNudge
-		// Clamp multiplier between 0.05 (95% suppression) and 2.0 (double score)
-		if multiplier < 0.05 {
-			multiplier = 0.05
+		// Clamp multiplier between configured min and max
+		if multiplier < config.NudgeMin {
+			multiplier = config.NudgeMin
 		}
-		if multiplier > 2.0 {
-			multiplier = 2.0
+		if multiplier > config.NudgeMax {
+			multiplier = config.NudgeMax
 		}
 		nudges[itemID] = multiplier
 	}

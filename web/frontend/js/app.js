@@ -178,9 +178,6 @@ createApp({
             return 'https://oldschool.runescape.wiki/w/' + encodeURIComponent(name.replace(/ /g, '_'));
         }
 
-        const formatSpike = (ind) => {
-            return ind.replace('⚠️', '').replace('-Spike', '');
-        }
 
         const formatDate = (dateString) => {
             if (!dateString) return '';
@@ -335,13 +332,13 @@ createApp({
         // Action Modals (from Market Report)
         const recordFlip = (item) => {
             selectedItem.value = item
-            flipForm.value = { quantity: Math.min(item.buy_limit, 100), buy_price: item.low_mod, sell_price: item.high_mod, note: '' }
+            flipForm.value = { rating: 'Good', note: '' }
             showFlipModal.value = true
         }
 
         const recordFailedBuy = (item) => {
             selectedItem.value = item
-            failedForm.value = { target_qty: Math.min(item.buy_limit, 100), bought_qty: 0, buy_price: item.low_mod, time_spent: '1h', note: '' }
+            failedForm.value = { note: '' }
             showFailedModal.value = true
         }
 
@@ -382,9 +379,8 @@ createApp({
         const submitFlip = async () => {
             await submitFlipPayload({
                 item_id: selectedItem.value.item_id,
-                quantity: flipForm.value.quantity,
-                buy_price: flipForm.value.buy_price,
-                sell_price: flipForm.value.sell_price,
+                item_name: selectedItem.value.name,
+                rating: flipForm.value.rating,
                 note: flipForm.value.note
             })
             closeModals()
@@ -395,11 +391,6 @@ createApp({
             await submitFailedBuyPayload({
                 item_id: selectedItem.value.item_id,
                 item_name: selectedItem.value.name,
-                target_qty: failedForm.value.target_qty,
-                bought_qty: failedForm.value.bought_qty,
-                buy_price: failedForm.value.buy_price,
-                time_spent: failedForm.value.time_spent,
-                report_score: selectedItem.value.score,
                 note: failedForm.value.note
             })
             closeModals()
@@ -411,12 +402,11 @@ createApp({
             if (!manualFlipForm.value.item) return
             await submitFlipPayload({
                 item_id: manualFlipForm.value.item.id,
-                quantity: manualFlipForm.value.quantity,
-                buy_price: manualFlipForm.value.buy_price,
-                sell_price: manualFlipForm.value.sell_price,
+                item_name: manualFlipForm.value.item.name,
+                rating: manualFlipForm.value.rating,
                 note: manualFlipForm.value.note
             })
-            manualFlipForm.value = { item: null, quantity: 1, buy_price: null, sell_price: null, note: '' }
+            manualFlipForm.value = { item: null, rating: 'Good', note: '' }
         }
 
         const submitManualFailedBuy = async () => {
@@ -424,14 +414,9 @@ createApp({
             await submitFailedBuyPayload({
                 item_id: manualFailedForm.value.item.id,
                 item_name: manualFailedForm.value.item.name,
-                target_qty: manualFailedForm.value.target_qty,
-                bought_qty: manualFailedForm.value.bought_qty,
-                buy_price: manualFailedForm.value.buy_price,
-                time_spent: manualFailedForm.value.time_spent,
-                report_score: 0, // No specific score context
                 note: manualFailedForm.value.note
             })
-            manualFailedForm.value = { item: null, target_qty: null, bought_qty: 0, buy_price: null, time_spent: '1h', note: '' }
+            manualFailedForm.value = { item: null, note: '' }
         }
 
         const toggleTheme = () => {
@@ -468,7 +453,7 @@ createApp({
             isDarkMode, toggleTheme,
             showFlipModal, showFailedModal, selectedItem,
             flipForm, failedForm, manualFlipForm, manualFailedForm,
-            formatNumber, getGoldColorClass, getWikiLink, formatSpike, formatDate, fetchReport, fetchHistory, syncPrices, syncMetadata,
+            formatNumber, getGoldColorClass, getWikiLink, formatDate, fetchReport, fetchHistory, syncPrices, syncMetadata,
             handleFileUpload, restoreBackup, recordFlip, recordFailedBuy, closeModals,
             submitFlip, submitFailedBuy, submitManualFlip, submitManualFailedBuy,
             clearError

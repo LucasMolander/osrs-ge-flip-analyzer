@@ -8,12 +8,6 @@ import (
 	"time"
 )
 
-const (
-	Penalty1h  = 0.80
-	Penalty24h = 0.90
-	Penalty30d = 0.95
-)
-
 // FindLatestFile scans a directory and returns the path and timestamp of the latest file matching the prefix.
 func FindLatestFile(dir, prefix string) (string, int64, error) {
 	entries, err := os.ReadDir(dir)
@@ -100,6 +94,7 @@ func AnalyzePrices(
 	vol5m map[string]HourlyVolume,
 	vol24h map[string]HourlyVolume,
 	filterName string,
+	config *RankingConfig,
 ) []ReportItem {
 	var items []ReportItem
 
@@ -155,12 +150,12 @@ func AnalyzePrices(
 			continue
 		}
 
-		// 6. Calculate 2% tax (floor division, capped at 5M gp, 0 tax if under 50 gp)
+		// 6. Calculate tax (default 2% floor division, capped at 5M gp, 0 tax if under 50 gp)
 		tax := int64(0)
 		if highMod >= 50 {
-			tax = int64(float64(highMod) * 0.02)
-			if tax > 5_000_000 {
-				tax = 5_000_000
+			tax = int64(float64(highMod) * config.TaxRate)
+			if tax > config.TaxCap {
+				tax = config.TaxCap
 			}
 		}
 
@@ -194,15 +189,13 @@ func AnalyzePrices(
 		roi := (float64(profitPerItem) / float64(lowMod)) * 100.0
 
 		// Capital Penalty Factor: K_cap / (K_cap + CapitalRequired)
-		// We lessen the penalty by 50% (impact of capital requirement is halved)
 		capitalFactor := float64(capitalThreshold) / float64(capitalThreshold+capitalRequired)
-		capitalFactor = 0.5 + 0.5*capitalFactor
+		capitalFactor = config.CapitalPenaltyBaseWeight + config.CapitalPenaltyScaleWeight*capitalFactor
 
 		// Volume Penalty Factors:
 		// A. Volume Ratio Factor/Filter:
 		// - If Volume >= Limit: 1.0 (no penalty)
 		// - If Volume <= 0.1 * Limit: 0.0 (completely filtered out)
-		// - Otherwise: scales quadratically (with penalty impact increased by 30%): 1.0 - 1.30 * ((Limit - Volume) / (0.9 * Limit))^2
 		volumeRatioFactor := 1.0
 		limitVal := float64(item.Limit)
 		volumeVal := float64(volume)
@@ -211,7 +204,7 @@ func AnalyzePrices(
 		} else if volumeVal < limitVal {
 			ratio := volumeVal / limitVal
 			penalty := (1.0 - ratio) / 0.9
-			volumeRatioFactor = 1.0 - 1.30*(penalty*penalty)
+			volumeRatioFactor = 1.0 - config.VolumeRatioPenaltyMax*(penalty*penalty)
 			if volumeRatioFactor < 0 {
 				volumeRatioFactor = 0
 			}
@@ -220,13 +213,12 @@ func AnalyzePrices(
 		// B. Absolute Volume Factor/Filter:
 		// - If Volume <= 10: completely filtered out
 		// - If Volume >= 100: 1.0 (no penalty)
-		// - Otherwise: scales quadratically down to 10 (with penalty impact increased by 30%): 1.0 - 1.30 * ((100 - Volume) / 90)^2
 		absoluteVolumeFactor := 1.0
 		if volumeVal <= 10 && !isTarget {
 			continue // Filtered out by absolute volume!
 		} else if volumeVal < 100 {
 			penalty := (100.0 - volumeVal) / 90.0
-			absoluteVolumeFactor = 1.0 - 1.30*(penalty*penalty)
+			absoluteVolumeFactor = 1.0 - config.AbsoluteVolumePenaltyMax*(penalty*penalty)
 			if absoluteVolumeFactor < 0 {
 				absoluteVolumeFactor = 0
 			}
@@ -261,51 +253,52 @@ func AnalyzePrices(
 
 		// Calculate trend penalties
 		trendMultiplier := 1.0
-		var trendIndicators []string
+		var priceTrendIndicators []string
+		volumeSpikeIndicators := []string{}
 		idStr := fmt.Sprintf("%d", id)
 
 		// 1-hour trend
 		if h1, ok := hist1h[idStr]; ok {
 			if avg1h, valid := getHistoricAvg(h1); valid && currentPrice < avg1h {
-				trendMultiplier *= Penalty1h
-				trendIndicators = append(trendIndicators, "↓1h")
+				trendMultiplier *= config.PriceTrendPenalty1h
+				priceTrendIndicators = append(priceTrendIndicators, "↓1h")
 			}
 		}
 
 		// 24-hour trend
 		if h24, ok := hist24h[idStr]; ok {
 			if avg24h, valid := getHistoricAvg(h24); valid && currentPrice < avg24h {
-				trendMultiplier *= Penalty24h
-				trendIndicators = append(trendIndicators, "↓24h")
+				trendMultiplier *= config.PriceTrendPenalty24h
+				priceTrendIndicators = append(priceTrendIndicators, "↓24h")
 			}
 		}
 
 		// 30-day trend
 		if h30, ok := hist30d[idStr]; ok {
 			if avg30d, valid := getHistoricAvg(h30); valid && currentPrice < avg30d {
-				trendMultiplier *= Penalty30d
-				trendIndicators = append(trendIndicators, "↓30d")
+				trendMultiplier *= config.PriceTrendPenalty30d
+				priceTrendIndicators = append(priceTrendIndicators, "↓30d")
 			}
 		}
 
-		if len(trendIndicators) == 0 {
-			trendIndicators = []string{"↗"}
+		if len(priceTrendIndicators) == 0 {
+			priceTrendIndicators = []string{"↗"}
 		}
 
 		spikeMultiplier := 1.0
 		if volume > 0 {
 			expected5m := float64(volume) / 12.0
 			if float64(volume5m) > expected5m*3 && volume5m > 10 {
-				spikeMultiplier *= 0.5
-				trendIndicators = append(trendIndicators, "⚠️5m-Spike")
+				spikeMultiplier *= config.VolumeSpike5mMultiplier
+				volumeSpikeIndicators = append(volumeSpikeIndicators, "↑5m")
 			}
 		}
 
 		if volume24h > 0 {
 			expected1h := float64(volume24h) / 24.0
 			if float64(volume) > expected1h*3 && volume > 50 {
-				spikeMultiplier *= 0.5
-				trendIndicators = append(trendIndicators, "⚠️1h-Spike")
+				spikeMultiplier *= config.VolumeSpike24hMultiplier
+				volumeSpikeIndicators = append(volumeSpikeIndicators, "↑1h")
 			}
 		}
 
@@ -326,11 +319,12 @@ func AnalyzePrices(
 			CapitalRequired: capitalRequired,
 			ROI:             roi,
 			Volume:          volume,
-			Score:           score,
-			NudgeMultiplier: nudge,
-			TrendMultiplier: trendMultiplier,
-			TrendIndicators: trendIndicators,
-			IsSink:          SinkItems[item.Name],
+			Score:                 score,
+			NudgeMultiplier:       nudge,
+			TrendMultiplier:       trendMultiplier,
+			PriceTrendIndicators:  priceTrendIndicators,
+			VolumeSpikeIndicators: volumeSpikeIndicators,
+			IsSink:                SinkItems[item.Name],
 		})
 	}
 
@@ -392,12 +386,20 @@ func GenerateMarkdownReport(items []ReportItem, timestamp int64, capThreshold, v
 		}
 
 		trendStr := ""
-		if len(item.TrendIndicators) > 0 {
-			for idx, ind := range item.TrendIndicators {
+		if len(item.PriceTrendIndicators) > 0 {
+			for idx, ind := range item.PriceTrendIndicators {
 				if idx > 0 {
 					trendStr += " "
 				}
 				trendStr += ind
+			}
+		}
+		if len(item.VolumeSpikeIndicators) > 0 {
+			for _, ind := range item.VolumeSpikeIndicators {
+				if trendStr != "" {
+					trendStr += " "
+				}
+				trendStr += "⚠️" + ind + "-Spike"
 			}
 		}
 

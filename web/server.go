@@ -15,16 +15,18 @@ type AppServer struct {
 	VolThreshold int64
 	Limit        int
 	Store        core.Storage
+	Config       *core.RankingConfig
 }
 
 // StartServer initializes the HTTP handlers and starts listening on the given port.
-func StartServer(port string, client *core.OSRSClient, capital, volThreshold int64, limit int, store core.Storage) error {
+func StartServer(port string, client *core.OSRSClient, capital, volThreshold int64, limit int, store core.Storage, config *core.RankingConfig) error {
 	app := &AppServer{
 		Client:       client,
 		Capital:      capital,
 		VolThreshold: volThreshold,
 		Limit:        limit,
 		Store:        store,
+		Config:       config,
 	}
 
 	// API router wrapped with BasicAuth

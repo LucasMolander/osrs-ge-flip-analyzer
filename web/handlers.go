@@ -43,7 +43,7 @@ func (app *AppServer) apiReportHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Always skip download during web requests to prevent API rate limiting / latency.
 	// A background cron job should ideally update the prices.
-	flips, err := core.RunAnalysis(app.Client, app.Capital, app.VolThreshold, app.Limit, false, "")
+	flips, err := core.RunAnalysis(app.Client, app.Capital, app.VolThreshold, app.Limit, false, "", app.Config)
 	if err != nil {
 		sendError(w, err, "Failed to generate report", http.StatusInternalServerError)
 		return
@@ -71,9 +71,8 @@ func (app *AppServer) apiRecordFlipHandler(w http.ResponseWriter, r *http.Reques
 
 	var req struct {
 		ItemID    int    `json:"item_id"`
-		Quantity  int    `json:"quantity"`
-		BuyPrice  int64  `json:"buy_price"`
-		SellPrice int64  `json:"sell_price"`
+		ItemName  string `json:"item_name"`
+		Rating    string `json:"rating"`
 		Note      string `json:"note"`
 	}
 
@@ -82,17 +81,22 @@ func (app *AppServer) apiRecordFlipHandler(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	if req.ItemID <= 0 || req.Quantity <= 0 || req.BuyPrice <= 0 || req.SellPrice <= 0 {
-		sendError(w, nil, "item_id, quantity, buy_price, and sell_price must all be > 0", http.StatusBadRequest)
+	if req.ItemID <= 0 {
+		sendError(w, nil, "item_id must be > 0", http.StatusBadRequest)
+		return
+	}
+
+	validRatings := map[string]bool{"Meh": true, "Mid": true, "Good": true, "Great": true}
+	if !validRatings[req.Rating] {
+		sendError(w, nil, "rating must be Meh, Mid, Good, or Great", http.StatusBadRequest)
 		return
 	}
 
 	ts := time.Now().Unix()
 	record := core.FlipRecord{
 		ItemID:    req.ItemID,
-		Quantity:  req.Quantity,
-		BuyPrice:  req.BuyPrice,
-		SellPrice: req.SellPrice,
+		ItemName:  req.ItemName,
+		Rating:    req.Rating,
 		Timestamp: time.Unix(ts, 0),
 		Notes:     req.Note,
 	}
@@ -118,11 +122,6 @@ func (app *AppServer) apiRecordFailedBuyHandler(w http.ResponseWriter, r *http.R
 	var req struct {
 		ItemID      int     `json:"item_id"`
 		ItemName    string  `json:"item_name"`
-		TargetQty   int     `json:"target_qty"`
-		BoughtQty   int     `json:"bought_qty"`
-		BuyPrice    int64   `json:"buy_price"`
-		TimeSpent   string  `json:"time_spent"`
-		ReportScore float64 `json:"report_score"`
 		Note        string  `json:"note"`
 	}
 
@@ -131,8 +130,8 @@ func (app *AppServer) apiRecordFailedBuyHandler(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	if req.ItemID <= 0 || req.TargetQty <= 0 || req.BuyPrice <= 0 {
-		sendError(w, nil, "item_id, target_qty, and buy_price must be > 0", http.StatusBadRequest)
+	if req.ItemID <= 0 {
+		sendError(w, nil, "item_id must be > 0", http.StatusBadRequest)
 		return
 	}
 
@@ -140,11 +139,6 @@ func (app *AppServer) apiRecordFailedBuyHandler(w http.ResponseWriter, r *http.R
 	record := core.FailedBuyRecord{
 		ItemID:      req.ItemID,
 		ItemName:    req.ItemName,
-		TargetQty:   req.TargetQty,
-		BoughtQty:   req.BoughtQty,
-		BuyPrice:    req.BuyPrice,
-		TimeSpent:   req.TimeSpent,
-		ReportScore: req.ReportScore,
 		Timestamp:   time.Unix(ts, 0),
 		Notes:       req.Note,
 	}
