@@ -30,6 +30,24 @@ func DownloadPrices(client *OSRSClient, timestamp int64) error {
 		return fmt.Errorf("saving volumes: %w", err)
 	}
 
+	_, volumes5m, err := client.Fetch5mVolumes()
+	if err != nil {
+		return fmt.Errorf("fetching 5m volumes: %w", err)
+	}
+	_, err = SaveJSON("prices", "volumes_5m", timestamp, volumes5m)
+	if err != nil {
+		return fmt.Errorf("saving 5m volumes: %w", err)
+	}
+
+	_, volumes24hAvg, err := client.Fetch24hVolumes()
+	if err != nil {
+		return fmt.Errorf("fetching 24h volumes avg: %w", err)
+	}
+	_, err = SaveJSON("prices", "volumes_24h_avg", timestamp, volumes24hAvg)
+	if err != nil {
+		return fmt.Errorf("saving 24h volumes avg: %w", err)
+	}
+
 	// Align timestamp to the hourly boundary (multiples of 3600)
 	alignedNow := (timestamp / 3600) * 3600
 
@@ -88,7 +106,7 @@ func DownloadMetadata(client *OSRSClient, timestamp int64) (map[int]ItemMetadata
 	return metadataMap, metadataFile, nil
 }
 
-func RunAnalysis(client *OSRSClient, capital int64, vol int64, limit int, forceDownload bool) ([]ReportItem, error) {
+func RunAnalysis(client *OSRSClient, capital int64, vol int64, limit int, forceDownload bool, filterName string) ([]ReportItem, error) {
 	runTs := time.Now().Unix()
 
 	// 1. Download unless skipped
@@ -96,6 +114,15 @@ func RunAnalysis(client *OSRSClient, capital int64, vol int64, limit int, forceD
 		fmt.Println("Downloading latest price and volume data...")
 		if err := DownloadPrices(client, runTs); err != nil {
 			return nil, fmt.Errorf("error downloading prices: %w", err)
+		}
+	} else {
+		// Verify we at least have one cached file, if not, fetch anyway to prevent crashing
+		_, _, err := Store.FindLatestFile("prices", "prices")
+		if err != nil {
+			fmt.Println("No cached prices found. Fetching them now as fallback...")
+			if err := DownloadPrices(client, runTs); err != nil {
+				return nil, fmt.Errorf("error downloading prices during fallback: %w", err)
+			}
 		}
 	}
 
@@ -107,6 +134,14 @@ func RunAnalysis(client *OSRSClient, capital int64, vol int64, limit int, forceD
 	volumesPath, _, err := Store.FindLatestFile("prices", "volumes")
 	if err != nil {
 		return nil, fmt.Errorf("error locating latest volumes file: %w", err)
+	}
+	volumes5mPath, _, err := Store.FindLatestFile("prices", "volumes_5m")
+	if err != nil {
+		return nil, fmt.Errorf("error locating latest 5m volumes file: %w", err)
+	}
+	volumes24hAvgPath, _, err := Store.FindLatestFile("prices", "volumes_24h_avg")
+	if err != nil {
+		return nil, fmt.Errorf("error locating latest 24h volumes avg file: %w", err)
 	}
 	prices1hPath, _, err := Store.FindLatestFile("prices", "prices_1h")
 	if err != nil {
@@ -150,6 +185,16 @@ func RunAnalysis(client *OSRSClient, capital int64, vol int64, limit int, forceD
 		return nil, fmt.Errorf("error loading volumes from %s: %w", volumesPath, err)
 	}
 
+	var vol5m map[string]HourlyVolume
+	if err := LoadJSON(volumes5mPath, &vol5m); err != nil {
+		return nil, fmt.Errorf("error loading 5m volumes from %s: %w", volumes5mPath, err)
+	}
+
+	var vol24h map[string]HourlyVolume
+	if err := LoadJSON(volumes24hAvgPath, &vol24h); err != nil {
+		return nil, fmt.Errorf("error loading 24h volumes from %s: %w", volumes24hAvgPath, err)
+	}
+
 	var hist1h map[string]HourlyVolume
 	if err := LoadJSON(prices1hPath, &hist1h); err != nil {
 		return nil, fmt.Errorf("error loading 1h prices from %s: %w", prices1hPath, err)
@@ -173,7 +218,7 @@ func RunAnalysis(client *OSRSClient, capital int64, vol int64, limit int, forceD
 
 	// 6. Run analysis
 	fmt.Println("Analyzing prices and generating report...")
-	reportItems := AnalyzePrices(prices, volumes, metadata, capital, vol, nudges, hist1h, hist24h, hist30d)
+	reportItems := AnalyzePrices(prices, volumes, metadata, capital, vol, nudges, hist1h, hist24h, hist30d, vol5m, vol24h, filterName)
 
 	// 7. Save reports
 	_, err = SaveJSON("reports", "report", runTs, reportItems)

@@ -1,0 +1,254 @@
+=================================================================
+   OSRS GE Flip Analyzer - Personal Deployment Bootstrapper
+=================================================================
+♻️ Found existing project: ge-flip-1781918245. Reusing it to save quota!
+WARNING: Your active project does not match the quota project in your local Application Default Credentials file. This might result in unexpected quota issues.
+
+To update your Application Default Credentials quota project, use the `gcloud auth application-default set-quota-project` command.
+Updated property [core/project].
+Checking billing status for ge-flip-1781918245...
+✅ Billing is already enabled for ge-flip-1781918245.
+=================================================================
+
+Step 1: Enabling necessary APIs...
+Operation "operations/acat.p2-172454339086-85082afe-d218-4d85-aff1-615bc4f5b634" finished successfully.
+Verifying API and IAM propagation (polling for up to 60 seconds)...
+✅ API and IAM successfully propagated!
+
+Step 2: Initializing and running Terraform...
+✅ Valid Terraform state found for ge-flip-1781918245. Resuming...
+
+[0m[1mInitializing the backend...[0m
+
+[0m[1mInitializing provider plugins...[0m
+- Reusing previous version of hashicorp/random from the dependency lock file
+- Reusing previous version of hashicorp/google from the dependency lock file
+- Using previously-installed hashicorp/random v3.9.0
+- Using previously-installed hashicorp/google v5.45.2
+
+Terraform has made some changes to the provider dependency selections recorded
+in the .terraform.lock.hcl file. Review those changes and commit them to your
+version control system if they represent changes you intended to make.
+
+[0m[1m[32mTerraform has been successfully initialized![0m[32m[0m
+[0m[32m
+You may now begin working with Terraform. Try running "terraform plan" to see
+any changes that are required for your infrastructure. All Terraform commands
+should now work.
+
+If you ever set or change modules or backend configuration for Terraform,
+rerun this command to reinitialize your working directory. If you forget, other
+commands will detect it and remind you to do so if necessary.[0m
+Provisioning Artifact Registry first...
+[0m[1mgoogle_artifact_registry_repository.repo: Refreshing state... [id=projects/ge-flip-1781918245/locations/us-central1/repositories/ge-analyzer-repo][0m
+
+[0m[1m[32mNo changes.[0m[1m Your infrastructure matches the configuration.[0m
+
+[0mTerraform has compared your real infrastructure against your configuration
+and found no differences, so no changes are needed.
+[33m╷[0m[0m
+[33m│[0m [0m[1m[33mWarning: [0m[0m[1mResource targeting is in effect[0m
+[33m│[0m [0m
+[33m│[0m [0m[0mYou are creating a plan with the -target option, which means that the
+[33m│[0m [0mresult of this plan may not represent all of the changes requested by the
+[33m│[0m [0mcurrent configuration.
+[33m│[0m [0m
+[33m│[0m [0mThe -target option is not for routine use, and is provided only for
+[33m│[0m [0mexceptional situations such as recovering from errors or mistakes, or when
+[33m│[0m [0mTerraform specifically suggests to use it as part of an error message.
+[33m╵[0m[0m
+[33m╷[0m[0m
+[33m│[0m [0m[1m[33mWarning: [0m[0m[1mApplied changes may be incomplete[0m
+[33m│[0m [0m
+[33m│[0m [0m[0mThe plan was created with the -target option in effect, so some changes
+[33m│[0m [0mrequested in the configuration may have been ignored and the output values
+[33m│[0m [0mmay not be fully updated. Run the following command to verify that no other
+[33m│[0m [0mchanges are pending:
+[33m│[0m [0m    terraform plan
+[33m│[0m [0m
+[33m│[0m [0mNote that the -target option is not suitable for routine use, and is
+[33m│[0m [0mprovided only for exceptional situations such as recovering from errors or
+[33m│[0m [0mmistakes, or when Terraform specifically suggests to use it as part of an
+[33m│[0m [0merror message.
+[33m╵[0m[0m
+[0m[1m[32m
+Apply complete! Resources: 0 added, 0 changed, 0 destroyed.
+[0m[0m[1m[32m
+Outputs:
+
+[0mcloud_run_url = "https://ge-analyzer-service-xxg73dsz5q-uc.a.run.app"
+gcs_bucket_name = "ge-flip-1781918245-data-e54d7946"
+project_id = "ge-flip-1781918245"
+✅ Artifact Registry provisioned.
+
+Step 3: Building and pushing Docker container...
+Configuring docker authentication for Artifact Registry...
+WARNING: Your config file at [/usr/local/google/home/lucasmolander/.docker/config.json] contains these credential helper entries:
+
+{
+  "credHelpers": {
+    "gcr.io": "gcloud",
+    "us.gcr.io": "gcloud",
+    "eu.gcr.io": "gcloud",
+    "asia.gcr.io": "gcloud",
+    "staging-k8s.gcr.io": "gcloud",
+    "marketplace.gcr.io": "gcloud",
+    "us-docker.pkg.dev": "gcloud",
+    "us-central1-docker.pkg.dev": "gcloud"
+  }
+}
+Adding credentials for: us-central1-docker.pkg.dev
+gcloud credential helpers already registered correctly.
+Compiling optimized Go binary inside multi-stage Docker build...
+#0 building with "default" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.17kB done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/library/golang:1.25.9-alpine
+#2 ...
+
+#3 [internal] load metadata for docker.io/library/alpine:latest
+#3 DONE 0.4s
+
+#2 [internal] load metadata for docker.io/library/golang:1.25.9-alpine
+#2 DONE 0.4s
+
+#4 [internal] load .dockerignore
+#4 transferring context: 2B done
+#4 DONE 0.0s
+
+#5 [builder 1/9] FROM docker.io/library/golang:1.25.9-alpine@sha256:5caaf1cca9dc351e13deafbc3879fd4754801acba8653fa9540cea125d01a71f
+#5 DONE 0.0s
+
+#6 [stage-1 1/5] FROM docker.io/library/alpine:latest@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
+#6 DONE 0.0s
+
+#7 [internal] load build context
+#7 transferring context: 133.42kB done
+#7 DONE 0.0s
+
+#8 [builder 3/9] WORKDIR /app
+#8 CACHED
+
+#9 [builder 2/9] RUN apk add --no-cache ca-certificates git
+#9 CACHED
+
+#10 [builder 4/9] COPY go.mod go.sum ./
+#10 CACHED
+
+#11 [builder 5/9] RUN go mod download
+#11 CACHED
+
+#12 [builder 6/9] COPY cmd/ ./cmd/
+#12 DONE 0.1s
+
+#13 [builder 7/9] COPY core/ ./core/
+#13 DONE 0.0s
+
+#14 [builder 8/9] COPY web/ ./web/
+#14 DONE 0.0s
+
+#15 [builder 9/9] RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o ge-analyzer ./cmd/ge-analyzer
+#15 DONE 14.7s
+
+#16 [stage-1 2/5] RUN apk add --no-cache ca-certificates
+#16 CACHED
+
+#17 [stage-1 3/5] WORKDIR /app
+#17 CACHED
+
+#18 [stage-1 4/5] COPY --from=builder /app/ge-analyzer .
+#18 DONE 0.1s
+
+#19 [stage-1 5/5] COPY web/frontend/ ./web/frontend/
+#19 DONE 0.0s
+
+#20 exporting to image
+#20 exporting layers 0.1s done
+#20 writing image sha256:5a7be71cc95d7751f8690bd49bc56051cd1334aa33bde7a2b8f71ac9f7950742 done
+#20 naming to us-central1-docker.pkg.dev/ge-flip-1781918245/ge-analyzer-repo/ge-analyzer-server:latest done
+#20 DONE 0.1s
+Pushing container image to Artifact Registry...
+The push refers to repository [us-central1-docker.pkg.dev/ge-flip-1781918245/ge-analyzer-repo/ge-analyzer-server]
+11656ce67297: Preparing
+f3527b043f52: Preparing
+872c7a377e14: Preparing
+e96d841c454b: Preparing
+34884abbe928: Preparing
+11656ce67297: Pushed
+872c7a377e14: Pushed
+e96d841c454b: Pushed
+34884abbe928: Pushed
+f3527b043f52: Pushed
+latest: digest: sha256:f5705f4796672fb0bb52d7479a86bd795e1a87d155938ab28ffefe76f7794ddf size: 1364
+✅ Container successfully uploaded to Artifact Registry.
+
+Step 4: Provisioning remaining infrastructure (GCS, Cloud Run, IAM bindings)...
+[0m[1mrandom_id.bucket_suffix: Refreshing state... [id=5U15Rg][0m
+[0m[1mgoogle_service_account.run_sa: Refreshing state... [id=projects/ge-flip-1781918245/serviceAccounts/ge-analyzer-runner@ge-flip-1781918245.iam.gserviceaccount.com][0m
+[0m[1mgoogle_artifact_registry_repository.repo: Refreshing state... [id=projects/ge-flip-1781918245/locations/us-central1/repositories/ge-analyzer-repo][0m
+[0m[1mgoogle_storage_bucket.database: Refreshing state... [id=ge-flip-1781918245-data-e54d7946][0m
+[0m[1mgoogle_storage_bucket_iam_member.bucket_writer: Refreshing state... [id=b/ge-flip-1781918245-data-e54d7946/roles/storage.objectAdmin/serviceAccount:ge-analyzer-runner@ge-flip-1781918245.iam.gserviceaccount.com][0m
+[0m[1mgoogle_cloud_run_v2_service.server: Refreshing state... [id=projects/ge-flip-1781918245/locations/us-central1/services/ge-analyzer-service][0m
+[0m[1mgoogle_cloud_run_v2_service_iam_member.public_invoker: Refreshing state... [id=projects/ge-flip-1781918245/locations/us-central1/services/ge-analyzer-service/roles/run.invoker/allUsers][0m
+
+Terraform used the selected providers to generate the following execution
+plan. Resource actions are indicated with the following symbols:
+  [33m~[0m update in-place
+[0m
+Terraform will perform the following actions:
+
+[1m  # google_cloud_run_v2_service.server[0m will be updated in-place[0m[0m
+[0m  [33m~[0m[0m resource "google_cloud_run_v2_service" "server" {
+        [1m[0mid[0m[0m                      = "projects/ge-flip-1781918245/locations/us-central1/services/ge-analyzer-service"
+        [1m[0mname[0m[0m                    = "ge-analyzer-service"
+        [90m# (25 unchanged attributes hidden)[0m[0m
+
+      [33m~[0m [0mtemplate {
+            [90m# (6 unchanged attributes hidden)[0m[0m
+
+          [33m~[0m [0mcontainers {
+              [33m~[0m [0m[1m[0mimage[0m[0m      = "us-docker.pkg.dev/cloudrun/container/hello" [33m->[0m [0m"us-central1-docker.pkg.dev/ge-flip-1781918245/ge-analyzer-repo/ge-analyzer-server:latest"
+                [90m# (3 unchanged attributes hidden)[0m[0m
+
+
+
+
+                [90m# (6 unchanged blocks hidden)[0m[0m
+            }
+        }
+
+        [90m# (1 unchanged block hidden)[0m[0m
+    }
+
+[0m[1mPlan:[0m 0 to add, 1 to change, 0 to destroy.
+[0m[0m[1mgoogle_cloud_run_v2_service.server: Modifying... [id=projects/ge-flip-1781918245/locations/us-central1/services/ge-analyzer-service][0m[0m
+[0m[1mgoogle_cloud_run_v2_service.server: Still modifying... [id=projects/ge-flip-1781918245/locations/us-central1/services/ge-analyzer-service, 10s elapsed][0m[0m
+[0m[1mgoogle_cloud_run_v2_service.server: Modifications complete after 11s [id=projects/ge-flip-1781918245/locations/us-central1/services/ge-analyzer-service][0m
+[0m[1m[32m
+Apply complete! Resources: 0 added, 1 changed, 0 destroyed.
+[0m[0m[1m[32m
+Outputs:
+
+[0mcloud_run_url = "https://ge-analyzer-service-xxg73dsz5q-uc.a.run.app"
+gcs_bucket_name = "ge-flip-1781918245-data-e54d7946"
+project_id = "ge-flip-1781918245"
+✅ Infrastructure fully provisioned.
+   Created persistent GCS storage bucket: gs://ge-flip-1781918245-data-e54d7946
+Step 5: Outputting env_metadata.sh metadata file...
+✅ Shared environment metadata file created: env_metadata.sh
+
+=================================================================
+🎉 Personal deployment bootstrapper finished successfully!
+=================================================================
+Project ID:            ge-flip-1781918245
+Persistent GCS Bucket: gs://ge-flip-1781918245-data-e54d7946
+Cloud Run HTTPS URL:   https://ge-analyzer-service-xxg73dsz5q-uc.a.run.app
+=================================================================
+
+👉 You can now access your dashboard securely from any browser!
+   URL: https://ge-analyzer-service-xxg73dsz5q-uc.a.run.app
+   Login: REDACTED
+=================================================================

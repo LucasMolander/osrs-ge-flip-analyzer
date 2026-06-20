@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -96,27 +97,43 @@ func AnalyzePrices(
 	hist1h map[string]HourlyVolume,
 	hist24h map[string]HourlyVolume,
 	hist30d map[string]HourlyVolume,
+	vol5m map[string]HourlyVolume,
+	vol24h map[string]HourlyVolume,
+	filterName string,
 ) []ReportItem {
 	var items []ReportItem
 
 	for id, item := range metadata {
+		isTarget := false
+		if filterName != "" {
+			if !strings.Contains(strings.ToLower(item.Name), filterName) {
+				continue
+			}
+			isTarget = true
+		}
+
 		// 1. Skip items with invalid buy limits (cannot flip or unknown)
-		if item.Limit <= 0 {
+		if item.Limit <= 0 && !isTarget {
 			continue
 		}
 
 		// 2. Fetch price details
 		price, ok := prices[fmt.Sprintf("%d", id)]
-		if !ok || price.High == nil || price.Low == nil {
+		if (!ok || price.High == nil || price.Low == nil) && !isTarget {
 			continue // No transaction data
 		}
 
-		high := *price.High
-		low := *price.Low
+		var high, low int64
+		if ok && price.High != nil {
+			high = *price.High
+		}
+		if ok && price.Low != nil {
+			low = *price.Low
+		}
 		spread := high - low
 
 		// 3. Skip items with zero or negative spreads
-		if spread <= 0 {
+		if spread <= 0 && !isTarget {
 			continue
 		}
 
@@ -128,9 +145,13 @@ func AnalyzePrices(
 
 		highMod := high - buffer
 		lowMod := low + buffer
+		if spread <= 0 {
+			highMod = high
+			lowMod = low
+		}
 
 		// 5. Skip if buffer completely closes the spread
-		if highMod <= lowMod {
+		if highMod <= lowMod && !isTarget {
 			continue
 		}
 
@@ -145,7 +166,7 @@ func AnalyzePrices(
 
 		// 7. Calculate after-tax profit per item
 		profitPerItem := highMod - tax - lowMod
-		if profitPerItem <= 0 {
+		if profitPerItem <= 0 && !isTarget {
 			continue
 		}
 
@@ -153,6 +174,16 @@ func AnalyzePrices(
 		var volume int64
 		if volData, ok := volumes[fmt.Sprintf("%d", id)]; ok {
 			volume = volData.HighPriceVolume + volData.LowPriceVolume
+		}
+		
+		var volume5m int64
+		if volData, ok := vol5m[fmt.Sprintf("%d", id)]; ok {
+			volume5m = volData.HighPriceVolume + volData.LowPriceVolume
+		}
+		
+		var volume24h int64
+		if volData, ok := vol24h[fmt.Sprintf("%d", id)]; ok {
+			volume24h = volData.HighPriceVolume + volData.LowPriceVolume
 		}
 
 		// 9. Capital required for a full limit
@@ -175,7 +206,7 @@ func AnalyzePrices(
 		volumeRatioFactor := 1.0
 		limitVal := float64(item.Limit)
 		volumeVal := float64(volume)
-		if volumeVal <= 0.1*limitVal {
+		if volumeVal <= 0.1*limitVal && !isTarget {
 			continue // Filtered out by volume ratio!
 		} else if volumeVal < limitVal {
 			ratio := volumeVal / limitVal
@@ -191,7 +222,7 @@ func AnalyzePrices(
 		// - If Volume >= 100: 1.0 (no penalty)
 		// - Otherwise: scales quadratically down to 10 (with penalty impact increased by 30%): 1.0 - 1.30 * ((100 - Volume) / 90)^2
 		absoluteVolumeFactor := 1.0
-		if volumeVal <= 10 {
+		if volumeVal <= 10 && !isTarget {
 			continue // Filtered out by absolute volume!
 		} else if volumeVal < 100 {
 			penalty := (100.0 - volumeVal) / 90.0
@@ -261,8 +292,25 @@ func AnalyzePrices(
 			trendIndicators = []string{"↗"}
 		}
 
+		spikeMultiplier := 1.0
+		if volume > 0 {
+			expected5m := float64(volume) / 12.0
+			if float64(volume5m) > expected5m*3 && volume5m > 10 {
+				spikeMultiplier *= 0.5
+				trendIndicators = append(trendIndicators, "⚠️5m-Spike")
+			}
+		}
+
+		if volume24h > 0 {
+			expected1h := float64(volume24h) / 24.0
+			if float64(volume) > expected1h*3 && volume > 50 {
+				spikeMultiplier *= 0.5
+				trendIndicators = append(trendIndicators, "⚠️1h-Spike")
+			}
+		}
+
 		// Calculate final score
-		score := float64(potentialProfit) * capitalFactor * volumeRatioFactor * absoluteVolumeFactor * nudge * trendMultiplier
+		score := float64(potentialProfit) * capitalFactor * volumeRatioFactor * absoluteVolumeFactor * nudge * trendMultiplier * spikeMultiplier
 
 		items = append(items, ReportItem{
 			ID:              item.ID,

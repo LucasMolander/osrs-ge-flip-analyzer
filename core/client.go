@@ -9,7 +9,9 @@ import (
 
 const (
 	baseURLLatest  = "https://prices.runescape.wiki/api/v1/osrs/latest"
+	baseURL5m      = "https://prices.runescape.wiki/api/v1/osrs/5m"
 	baseURL1h      = "https://prices.runescape.wiki/api/v1/osrs/1h"
+	baseURL24h     = "https://prices.runescape.wiki/api/v1/osrs/24h"
 	baseURLMapping = "https://prices.runescape.wiki/api/v1/osrs/mapping"
 )
 
@@ -73,6 +75,26 @@ func (c *OSRSClient) FetchLatestPrices() (map[string]LatestPrice, error) {
 func (c *OSRSClient) FetchHourlyVolumes() (int64, map[string]HourlyVolume, error) {
 	var response HourlyVolumesResponse
 	if err := c.executeRequest(baseURL1h, &response); err != nil {
+		return 0, nil, err
+	}
+	return response.Timestamp, response.Data, nil
+}
+
+// Fetch5mVolumes retrieves the 5-minute trading volume and average prices.
+// Returns the Unix timestamp of the 5-minute block and the map of item volumes.
+func (c *OSRSClient) Fetch5mVolumes() (int64, map[string]HourlyVolume, error) {
+	var response HourlyVolumesResponse
+	if err := c.executeRequest(baseURL5m, &response); err != nil {
+		return 0, nil, err
+	}
+	return response.Timestamp, response.Data, nil
+}
+
+// Fetch24hVolumes retrieves the 24-hour trading volume and average prices.
+// Returns the Unix timestamp of the 24-hour block and the map of item volumes.
+func (c *OSRSClient) Fetch24hVolumes() (int64, map[string]HourlyVolume, error) {
+	var response HourlyVolumesResponse
+	if err := c.executeRequest(baseURL24h, &response); err != nil {
 		return 0, nil, err
 	}
 	return response.Timestamp, response.Data, nil

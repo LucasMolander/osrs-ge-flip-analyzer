@@ -9,7 +9,7 @@
     <!-- Vue 3 via CDN -->
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <!-- Custom CSS -->
-    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="/css/style.css?v=8">
 </head>
 <body>
     <div id="app" class="app-container" v-cloak>
@@ -19,70 +19,301 @@
                 <p class="subtitle">Real-time predictive market arbitrage insights</p>
             </div>
             <div class="header-actions">
-                <button @click="fetchReport" class="btn btn-primary" :disabled="loading">
-                    <span v-if="loading">Scanning Market...</span>
-                    <span v-else>↻ Refresh Market</span>
+                <div class="tabs">
+                    <button :class="['tab-btn', { active: currentTab === 'report' }]" @click="currentTab = 'report'">Market Report</button>
+                    <button :class="['tab-btn', { active: currentTab === 'manual' }]" @click="currentTab = 'manual'">Manual Entry</button>
+                    <button :class="['tab-btn', { active: currentTab === 'history' }]" @click="currentTab = 'history'">History</button>
+                    <button :class="['tab-btn', { active: currentTab === 'settings' }]" @click="currentTab = 'settings'">Settings</button>
+                </div>
+                <button class="theme-toggle-btn" @click="toggleTheme" :title="isDarkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'">
+                    {{ isDarkMode ? '☀️' : '🌙' }}
                 </button>
             </div>
         </div>
 
         <div v-if="error" class="error-banner">
-            {{ error }}
+            <div>
+                <strong>Error:</strong> {{ error }}
+            </div>
+            <div v-if="errorStack" class="error-stack-trace mt-2">
+                <button @click="showStack = !showStack" class="btn btn-sm">Toggle Stack Trace</button>
+                <pre v-show="showStack">{{ errorStack }}</pre>
+            </div>
+            <button @click="clearError" class="close-btn">×</button>
+        </div>
+        <div v-if="success" class="success-banner">
+            {{ success }}
+            <button @click="success = null" class="close-btn">×</button>
         </div>
 
-        <div class="main-content">
-            <div v-if="loading && items.length === 0" class="loading-state">
-                <div class="spinner"></div>
-                <p>Initializing arbitrage algorithms...</p>
+        <!-- LOGIN SCREEN -->
+        <div v-if="!isAuthenticated" class="login-container">
+            <div class="glass-panel login-panel">
+                <h2>Authentication Required</h2>
+                <p class="text-muted">Please log in to access the private dashboard.</p>
+                <form @submit.prevent="login">
+                    <div class="form-group">
+                        <label>Username</label>
+                        <input type="text" v-model="loginForm.username" required autofocus>
+                    </div>
+                    <div class="form-group">
+                        <label>Password</label>
+                        <input type="password" v-model="loginForm.password" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary login-btn">Login</button>
+                </form>
+            </div>
+        </div>
+
+        <div v-else class="main-content">
+            <!-- TAB: MARKET REPORT -->
+            <div v-show="currentTab === 'report'">
+                <div class="tab-header">
+                    <h2>Live Arbitrage Opportunities</h2>
+                    <button @click="fetchReport" class="btn btn-primary" :disabled="loading">
+                        <span v-if="loading">Scanning Market...</span>
+                        <span v-else>↻ Refresh Report</span>
+                    </button>
+                </div>
+                
+                <div v-if="loading && items.length === 0" class="loading-state">
+                    <div class="spinner"></div>
+                    <p>Initializing arbitrage algorithms...</p>
+                </div>
+
+                <div v-else-if="items.length > 0" class="table-container glass-panel">
+                    <table class="flip-table">
+                        <thead>
+                            <tr>
+                                <th>Rank</th>
+                                <th>Item Name</th>
+                                <th>Score</th>
+                                <th>Profit</th>
+                                <th>Profit/ea</th>
+                                <th>Low</th>
+                                <th>Adj Low</th>
+                                <th>Adj High</th>
+                                <th>High</th>
+                                <th>ROI</th>
+                                <th>Limit</th>
+                                <th>Vol (hr)</th>
+                                <th>Trend</th>
+                                <th>Vol Spikes</th>
+                                <th title="Manually record a successful flip or failed buy to improve this item's future ranking score">Actions ℹ️</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr v-for="(item, index) in items" :key="item.item_id" :class="{'is-sink': item.is_sink}">
+                                <td>#{{ index + 1 }}</td>
+                                <td class="item-name">
+                                    <a :href="getWikiLink(item.name)" target="_blank">
+                                        {{ item.name }}
+                                    </a>
+                                </td>
+                                <td class="score">{{ Math.round(item.score) }}</td>
+                                <td :class="['profit', 'positive', getGoldColorClass(item.potential_profit)]">{{ formatNumber(item.potential_profit) }}</td>
+                                <td :class="['profit', getGoldColorClass(item.profit_per_item)]">{{ formatNumber(item.profit_per_item) }}</td>
+                                <td :class="['spread', getGoldColorClass(item.low)]">{{ formatNumber(item.low) }}</td>
+                                <td :class="['spread', getGoldColorClass(item.low_mod)]">{{ formatNumber(item.low_mod) }}</td>
+                                <td :class="['spread', getGoldColorClass(item.high_mod)]">{{ formatNumber(item.high_mod) }}</td>
+                                <td :class="['spread', getGoldColorClass(item.high)]">{{ formatNumber(item.high) }}</td>
+                                <td class="roi">{{ item.roi.toFixed(1) }}%</td>
+                                <td>{{ formatNumber(item.buy_limit) }}</td>
+                                <td>{{ formatNumber(item.volume) }}</td>
+                                <td class="trend">
+                                    {{ item.trend_indicators.filter(i => !i.includes('Spike')).join(', ') }}
+                                </td>
+                                <td class="trend">
+                                    {{ item.trend_indicators.filter(i => i.includes('Spike')).map(ind => formatSpike(ind)).join(', ') }}
+                                </td>
+                                <td class="actions">
+                                    <button @click="recordFlip(item)" class="btn-action success" title="Record Successful Flip">💰</button>
+                                    <button @click="recordFailedBuy(item)" class="btn-action danger" title="Record Failed Buy">❌</button>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div v-else-if="!loading && items.length === 0" class="empty-state">
+                    <p>No profitable flips found. Try adjusting constraints or wait for market movement.</p>
+                </div>
             </div>
 
-            <div v-else-if="items.length > 0" class="table-container glass-panel">
-                <table class="flip-table">
-                    <thead>
-                        <tr>
-                            <th>Rank</th>
-                            <th>Item Name</th>
-                            <th>Score</th>
-                            <th>Pot. Profit</th>
-                            <th>Profit/ea</th>
-                            <th>Adj Spread</th>
-                            <th>Limit</th>
-                            <th>ROI</th>
-                            <th>Vol (hr)</th>
-                            <th>Trend</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr v-for="(item, index) in items" :key="item.item_id" :class="{'is-sink': item.is_sink}">
-                            <td>#{{ index + 1 }}</td>
-                            <td class="item-name">
-                                <a :href="'https://prices.runescape.wiki/osrs/item/' + item.item_id" target="_blank">
-                                    {{ item.name }}
-                                </a>
-                                <span v-if="item.is_sink" class="sink-badge" title="Item Sink">🔥</span>
-                            </td>
-                            <td class="score">{{ item.score.toFixed(1) }}</td>
-                            <td class="profit positive">{{ formatNumber(item.potential_profit) }}</td>
-                            <td class="profit">{{ formatNumber(item.profit_per_item) }}</td>
-                            <td class="spread">{{ formatNumber(item.low_mod) }} ➔ {{ formatNumber(item.high_mod) }}</td>
-                            <td>{{ formatNumber(item.buy_limit) }}</td>
-                            <td class="roi" :class="{'high-roi': item.roi > 10}">{{ item.roi.toFixed(1) }}%</td>
-                            <td>{{ formatNumber(item.volume) }}</td>
-                            <td class="trend">
-                                <span v-for="ind in item.trend_indicators" class="trend-indicator">{{ ind }}</span>
-                            </td>
-                            <td class="actions">
-                                <button @click="recordFlip(item)" class="btn-action success" title="Record Successful Flip">💰</button>
-                                <button @click="recordFailedBuy(item)" class="btn-action danger" title="Record Failed Buy">❌</button>
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
+            <!-- TAB: MANUAL ENTRY -->
+            <div v-show="currentTab === 'manual'" class="manual-entry-grid">
+                <div class="glass-panel form-panel">
+                    <h2>Record Manual Flip</h2>
+                    <p class="text-muted">Log a completed transaction to boost this item's future ranking score.</p>
+                    <form @submit.prevent="submitManualFlip">
+                        <div class="form-group">
+                            <label>Item Name</label>
+                            <autocomplete-input v-model="manualFlipForm.item" :options="itemDict" placeholder="Search for an item..."></autocomplete-input>
+                        </div>
+                        <div class="form-group">
+                            <label>Quantity Flipped</label>
+                            <input type="number" v-model.number="manualFlipForm.quantity" required min="1">
+                        </div>
+                        <div class="form-group">
+                            <label>Actual Buy Price (ea)</label>
+                            <input type="number" v-model.number="manualFlipForm.buy_price" required min="1">
+                        </div>
+                        <div class="form-group">
+                            <label>Actual Sell Price (ea)</label>
+                            <input type="number" v-model.number="manualFlipForm.sell_price" required min="1">
+                        </div>
+                        <div class="form-group">
+                            <label>Notes (Optional)</label>
+                            <input type="text" v-model="manualFlipForm.note" placeholder="e.g. Instant buy/sell">
+                        </div>
+                        <button type="submit" class="btn btn-primary" :disabled="submitting || !manualFlipForm.item">Save Flip</button>
+                    </form>
+                </div>
+
+                <div class="glass-panel form-panel">
+                    <h2>Record Failed Buy</h2>
+                    <p class="text-muted">Log a failed buy attempt to severely penalize this item's ranking score.</p>
+                    <form @submit.prevent="submitManualFailedBuy">
+                        <div class="form-group">
+                            <label>Item Name</label>
+                            <autocomplete-input v-model="manualFailedForm.item" :options="itemDict" placeholder="Search for an item..."></autocomplete-input>
+                        </div>
+                        <div class="form-group">
+                            <label>Target Quantity</label>
+                            <input type="number" v-model.number="manualFailedForm.target_qty" required min="1">
+                        </div>
+                        <div class="form-group">
+                            <label>Actually Bought</label>
+                            <input type="number" v-model.number="manualFailedForm.bought_qty" required min="0" :max="manualFailedForm.target_qty">
+                        </div>
+                        <div class="form-group">
+                            <label>Offer Price (ea)</label>
+                            <input type="number" v-model.number="manualFailedForm.buy_price" required min="1">
+                        </div>
+                        <div class="form-group">
+                            <label>Time Spent</label>
+                            <input type="text" v-model="manualFailedForm.time_spent" required placeholder="e.g. 1h, 10m">
+                        </div>
+                        <div class="form-group">
+                            <label>Notes (Optional)</label>
+                            <input type="text" v-model="manualFailedForm.note" placeholder="e.g. Price spiked">
+                        </div>
+                        <button type="submit" class="btn btn-danger" :disabled="submitting || !manualFailedForm.item">Record Failure</button>
+                    </form>
+                </div>
             </div>
 
-            <div v-else-if="!loading && items.length === 0" class="empty-state">
-                <p>No profitable flips found. Try adjusting constraints or wait for market movement.</p>
+            <!-- TAB: HISTORY -->
+            <div v-show="currentTab === 'history'">
+                <div class="tab-header">
+                    <h2>Transaction History</h2>
+                    <button @click="fetchHistory" class="btn" :disabled="loading">↻ Refresh</button>
+                </div>
+
+                <div class="history-grid">
+                    <div class="glass-panel">
+                        <h3>Recent Flips</h3>
+                        <div class="table-container">
+                            <table class="data-table small">
+                                <thead>
+                                    <tr>
+                                        <th>Date</th>
+                                        <th>Item ID</th>
+                                        <th>Qty</th>
+                                        <th>Buy</th>
+                                        <th>Sell</th>
+                                        <th>Profit</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr v-for="flip in flipsHistory" :key="flip.timestamp">
+                                        <td>{{ formatDate(flip.timestamp) }}</td>
+                                        <td>{{ flip.item_id }}</td>
+                                        <td>{{ flip.quantity }}</td>
+                                        <td>{{ formatNumber(flip.buy_price) }}</td>
+                                        <td>{{ formatNumber(flip.sell_price) }}</td>
+                                        <td class="positive">{{ formatNumber((flip.sell_price - flip.buy_price) * flip.quantity) }}</td>
+                                    </tr>
+                                    <tr v-if="flipsHistory.length === 0">
+                                        <td colspan="6" class="text-muted text-center">No flips recorded.</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="glass-panel">
+                        <h3>Recent Failed Buys</h3>
+                        <div class="table-container">
+                            <table class="data-table small">
+                                <thead>
+                                    <tr>
+                                        <th>Date</th>
+                                        <th>Item Name</th>
+                                        <th>Target</th>
+                                        <th>Bought</th>
+                                        <th>Offer</th>
+                                        <th>Time</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr v-for="fail in failedBuysHistory" :key="fail.timestamp">
+                                        <td>{{ formatDate(fail.timestamp) }}</td>
+                                        <td>{{ fail.item_name || fail.item_id }}</td>
+                                        <td>{{ fail.target_qty }}</td>
+                                        <td>{{ fail.bought_qty }}</td>
+                                        <td>{{ formatNumber(fail.buy_price) }}</td>
+                                        <td>{{ fail.time_spent }}</td>
+                                    </tr>
+                                    <tr v-if="failedBuysHistory.length === 0">
+                                        <td colspan="6" class="text-muted text-center">No failed buys recorded.</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB: SETTINGS -->
+            <div v-show="currentTab === 'settings'" class="settings-grid">
+                <div class="glass-panel form-panel">
+                    <h2>Data Synchronization</h2>
+                    <p class="text-muted">Manually trigger data pipelines from the OSRS Wiki APIs.</p>
+                    <div class="action-list">
+                        <button class="btn btn-primary" @click="syncPrices" :disabled="loading">
+                            Sync Latest Prices & Volumes
+                        </button>
+                        <p class="text-sm">Fetches the newest 5m prices, 1h volumes, and historical time-series data for algorithms.</p>
+                        <br>
+                        <button class="btn" @click="syncMetadata" :disabled="loading">
+                            Sync Item Metadata
+                        </button>
+                        <p class="text-sm">Fetches static mappings, buy limits, and high alch values.</p>
+                    </div>
+                </div>
+
+                <div class="glass-panel form-panel">
+                    <h2>Backup & Restore</h2>
+                    <p class="text-muted">Export or import your persistent database (flips, failures, prices, items) via JSON.</p>
+                    <div class="action-list">
+                        <a href="/api/backup" target="_blank" class="btn btn-primary" style="display:inline-block; text-decoration:none; text-align:center;">
+                            Download Full Backup (.json)
+                        </a>
+                        <p class="text-sm">Serializes all on-disk files into a single downloadable artifact.</p>
+                        <br>
+                        <div class="file-upload-wrapper">
+                            <input type="file" ref="backupFileInput" accept=".json" class="file-input" @change="handleFileUpload">
+                            <button class="btn" @click="$refs.backupFileInput.click()" :disabled="loading">
+                                Select Backup File to Restore
+                            </button>
+                            <span v-if="selectedFile" class="file-name">{{ selectedFile.name }}</span>
+                        </div>
+                        <button v-if="selectedFile" class="btn btn-danger mt-2" @click="restoreBackup" :disabled="loading">
+                            Upload and Overwrite Database
+                        </button>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -151,6 +382,6 @@
     </div>
 
     <!-- Custom Vue App Logic -->
-    <script src="/js/app.js"></script>
+    <script src="/js/app.js?v=4"></script>
 </body>
 </html>

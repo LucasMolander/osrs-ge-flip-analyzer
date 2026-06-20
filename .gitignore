@@ -39,9 +39,16 @@ flips/
 scripts/
 ge-analyzer
 
+# Temporary JSON dumps
+snapshot*.json
+parsed*.json
+
 # Terraform state and credentials
 .terraform/
+.terraform.d/
+.terraform.lock.hcl
 *.tfstate
 *.tfstate.backup
 *.tfvars
-gcp-playground/env_metadata.sh
+gcp/env_metadata.sh
+gcp/webapp_creds

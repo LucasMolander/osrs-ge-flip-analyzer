@@ -129,7 +129,7 @@ func TestAnalyzePrices_TaxAndBuffer(t *testing.T) {
 	volThreshold := int64(1)
 	nudges := make(map[int]float64)
 
-	report := AnalyzePrices(prices, volumes, metadata, capitalThreshold, volThreshold, nudges, nil, nil, nil)
+	report := AnalyzePrices(prices, volumes, metadata, capitalThreshold, volThreshold, nudges, nil, nil, nil, nil, nil, "")
 
 	// We expect 4 items (Cheap Item, Standard Item, Expensive Item, Twisted Bow). Narrow Spread Item is filtered.
 	if len(report) != 4 {
@@ -228,7 +228,7 @@ func TestAnalyzePrices_Heuristics(t *testing.T) {
 	volThreshold := int64(10)
 	nudges := make(map[int]float64)
 
-	report := AnalyzePrices(prices, volumes, metadata, capThreshold, volThreshold, nudges, nil, nil, nil)
+	report := AnalyzePrices(prices, volumes, metadata, capThreshold, volThreshold, nudges, nil, nil, nil, nil, nil, "")
 
 	if len(report) != 2 {
 		t.Fatalf("Expected 2 items in report, got %d", len(report))
@@ -308,7 +308,7 @@ func TestAnalyzePrices_Heuristics(t *testing.T) {
 	capThresholdTest := int64(10000) // K_cap = 10,000 gp
 	volThresholdTest := int64(1)
 
-	reportCap := AnalyzePrices(pricesCap, volumesCap, metadataCap, capThresholdTest, volThresholdTest, nudges, nil, nil, nil)
+	reportCap := AnalyzePrices(pricesCap, volumesCap, metadataCap, capThresholdTest, volThresholdTest, nudges, nil, nil, nil, nil, nil, "")
 
 	// Item 3: CapitalReq = 106 * 1000 = 106,000 gp. Potential Profit = 45 * 1000 = 45,000.
 	// CapitalFactor = 10,000 / (10,000 + 106,000) = 0.08620689
@@ -357,7 +357,7 @@ func TestAnalyzePrices_Nudge(t *testing.T) {
 		1: 1.5, // 50% boost from successful history
 	}
 
-	report := AnalyzePrices(prices, volumes, metadata, 1000000000, 1, nudges, nil, nil, nil)
+	report := AnalyzePrices(prices, volumes, metadata, 1000000000, 1, nudges, nil, nil, nil, nil, nil, "")
 
 	if len(report) != 1 {
 		t.Fatalf("Expected 1 item in report, got %d", len(report))
@@ -454,7 +454,7 @@ func TestAnalyzePrices_TrendPenalties(t *testing.T) {
 	nudges := make(map[int]float64)
 
 	// Run analyzer
-	report := AnalyzePrices(prices, volumes, metadata, 1000000000, 1, nudges, hist1h, hist24h, hist30d)
+	report := AnalyzePrices(prices, volumes, metadata, 1000000000, 1, nudges, hist1h, hist24h, hist30d, nil, nil, "")
 
 	if len(report) != 5 {
 		t.Fatalf("Expected 5 items in report, got %d", len(report))
@@ -534,7 +534,7 @@ func TestAnalyzePrices_AbsoluteVolumeFilter(t *testing.T) {
 	nudges := make(map[int]float64)
 
 	// Run analyzer
-	report := AnalyzePrices(prices, volumes, metadata, 1000000000, 1, nudges, nil, nil, nil)
+	report := AnalyzePrices(prices, volumes, metadata, 1000000000, 1, nudges, nil, nil, nil, nil, nil, "")
 
 	// We expect only 2 items (Item 3 and 4) in the report. Item 1 and 2 are filtered out.
 	if len(report) != 2 {

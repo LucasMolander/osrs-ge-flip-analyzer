@@ -3,8 +3,8 @@ version: '3.8'
 services:
   analyzer-web:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: deploy/Dockerfile
     image: ge-analyzer:latest
     ports:
       - "8080:8080"
@@ -15,8 +15,8 @@ services:
       # - GOOGLE_APPLICATION_CREDENTIALS=/app/credentials.json
     volumes:
       # Persistent volumes to preserve cached data and logs locally
-      - ./prices:/app/prices
-      - ./item_data:/app/item_data
-      - ./flips:/app/flips
-      - ./reports:/app/reports
+      - ../prices:/app/prices
+      - ../item_data:/app/item_data
+      - ../flips:/app/flips
+      - ../reports:/app/reports
     restart: unless-stopped

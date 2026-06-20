@@ -12,11 +12,20 @@ terraform {
 }
 
 provider "google" {
-  project = var.project_id
-  region  = var.region
+  project               = var.project_id
+  region                = var.region
+  user_project_override = true
+  billing_project       = var.project_id
+  access_token          = var.access_token
 }
 
 # --- Variables ---
+variable "access_token" {
+  description = "OAuth token for Terraform"
+  type        = string
+  sensitive   = true
+}
+
 variable "project_id" {
   description = "The GCP project ID"
   type        = string
@@ -36,6 +45,8 @@ variable "service_name" {
   description = "Cloud Run service name"
   type        = string
 }
+
+
 
 variable "image_url" {
   description = "Full URL of the container image"
@@ -57,29 +68,18 @@ variable "memory" {
   type        = string
 }
 
-variable "corp_email" {
-  description = "Your Corp Email"
+variable "webapp_username" {
+  description = "Basic auth username for the dashboard"
   type        = string
 }
 
-variable "personal_email" {
-  description = "Your Personal Gmail for IAP Access"
+variable "webapp_password" {
+  description = "Basic auth password for the dashboard"
   type        = string
+  sensitive   = true
 }
 
-# --- APIs to Enable ---
-resource "google_project_service" "apis" {
-  for_each = toset([
-    "artifactregistry.googleapis.com",
-    "run.googleapis.com",
-    "storage.googleapis.com",
-    "iap.googleapis.com",
-    "cloudbuild.googleapis.com",
-    "iamcredentials.googleapis.com",
-  ])
-  service            = each.key
-  disable_on_destroy = false
-}
+
 
 # --- Artifact Registry ---
 resource "google_artifact_registry_repository" "repo" {
@@ -87,7 +87,6 @@ resource "google_artifact_registry_repository" "repo" {
   location      = var.region
   repository_id = var.repository_name
   format        = "DOCKER"
-  depends_on    = [google_project_service.apis]
 }
 
 # --- Persistent GCS Bucket ---
@@ -100,14 +99,12 @@ resource "google_storage_bucket" "database" {
   location                    = var.region
   force_destroy               = true
   uniform_bucket_level_access = true
-  depends_on                  = [google_project_service.apis]
 }
 
 # --- Cloud Run Service Account ---
 resource "google_service_account" "run_sa" {
   account_id   = "ge-analyzer-runner"
   display_name = "Cloud Run Service Account for GE Analyzer"
-  depends_on   = [google_project_service.apis]
 }
 
 resource "google_storage_bucket_iam_member" "bucket_writer" {
@@ -138,11 +135,24 @@ resource "google_cloud_run_v2_service" "server" {
         container_port = var.container_port
       }
       env {
-        name  = "GCS_BUCKET"
+        name  = "DATA_STORAGE"
+        value = "gcs"
+      }
+      env {
+        name  = "GCS_BUCKET_NAME"
         value = google_storage_bucket.database.name
+      }
+      env {
+        name  = "AUTH_USERNAME"
+        value = var.webapp_username
+      }
+      env {
+        name  = "AUTH_PASSWORD"
+        value = var.webapp_password
       }
     }
   }
+
   depends_on = [
     google_artifact_registry_repository.repo,
     google_storage_bucket_iam_member.bucket_writer
@@ -151,23 +161,13 @@ resource "google_cloud_run_v2_service" "server" {
 
 # --- Cloud Run Access Control ---
 
-# Grant invoker access ONLY to your corp account
-resource "google_cloud_run_v2_service_iam_member" "corp_invoker" {
+# Grant invoker access to the public internet
+resource "google_cloud_run_v2_service_iam_member" "public_invoker" {
   project    = google_cloud_run_v2_service.server.project
   location   = google_cloud_run_v2_service.server.location
   name       = google_cloud_run_v2_service.server.name
   role       = "roles/run.invoker"
-  member     = "user:${var.corp_email}"
-  depends_on = [google_cloud_run_v2_service.server]
-}
-
-# Grant invoker access ONLY to your personal account
-resource "google_cloud_run_v2_service_iam_member" "personal_invoker" {
-  project    = google_cloud_run_v2_service.server.project
-  location   = google_cloud_run_v2_service.server.location
-  name       = google_cloud_run_v2_service.server.name
-  role       = "roles/run.invoker"
-  member     = "user:${var.personal_email}"
+  member     = "allUsers"
   depends_on = [google_cloud_run_v2_service.server]
 }
 
