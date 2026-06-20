@@ -85,22 +85,8 @@ createApp({
         
         const items = ref([])
         const itemDict = ref([]) // For autocomplete
-        const localConfig = ref(null)
-        const flipsHistory = ref(JSON.parse(localStorage.getItem('ge_analyzer_flips') || '[]'))
-        const failedSellsHistory = ref(JSON.parse(localStorage.getItem('ge_analyzer_failed_sells') || '[]'))
-
-        // Watchers to auto-save to localStorage
-        Vue.watch(flipsHistory, (newVal) => {
-            localStorage.setItem('ge_analyzer_flips', JSON.stringify(newVal))
-        }, { deep: true })
-        Vue.watch(failedSellsHistory, (newVal) => {
-            localStorage.setItem('ge_analyzer_failed_sells', JSON.stringify(newVal))
-        }, { deep: true })
-        Vue.watch(localConfig, (newVal) => {
-            if (newVal) {
-                localStorage.setItem('ge_analyzer_config', JSON.stringify(newVal))
-            }
-        }, { deep: true })
+        const flipsHistory = ref([])
+        const failedSellsHistory = ref([])
 
         const loading = ref(false)
         const submitting = ref(false)
@@ -111,52 +97,6 @@ createApp({
 
         // Theme state
         const isDarkMode = ref(true)
-
-        // Sorting state
-        const sortConfig = ref({ key: null, direction: 'default' })
-
-        const sortBy = (key) => {
-            if (sortConfig.value.key === key) {
-                if (sortConfig.value.direction === 'asc') {
-                    sortConfig.value.direction = 'desc'
-                } else if (sortConfig.value.direction === 'desc') {
-                    sortConfig.value.direction = 'default'
-                    sortConfig.value.key = null
-                } else {
-                    sortConfig.value.direction = 'asc'
-                }
-            } else {
-                sortConfig.value.key = key
-                sortConfig.value.direction = 'asc'
-            }
-        }
-
-        const sortedItems = Vue.computed(() => {
-            if (!sortConfig.value.key || sortConfig.value.direction === 'default') {
-                return items.value
-            }
-            
-            return [...items.value].sort((a, b) => {
-                let valA = a[sortConfig.value.key]
-                let valB = b[sortConfig.value.key]
-                
-                // Handle missing values
-                if (valA === undefined || valA === null) valA = ''
-                if (valB === undefined || valB === null) valB = ''
-
-                // String comparison
-                if (typeof valA === 'string' && typeof valB === 'string') {
-                    return sortConfig.value.direction === 'asc' 
-                        ? valA.localeCompare(valB) 
-                        : valB.localeCompare(valA)
-                }
-
-                // Numeric comparison
-                return sortConfig.value.direction === 'asc' 
-                    ? valA - valB 
-                    : valB - valA
-            })
-        })
         
         // Auth state
         const isAuthenticated = ref(false)
@@ -305,16 +245,7 @@ createApp({
             if (!isAuthenticated.value) return
             loading.value = true
             try {
-                const payload = {
-                    config: localConfig.value,
-                    flips: flipsHistory.value,
-                    failed_sells: failedSellsHistory.value
-                }
-                const response = await fetchWithAuth('/api/report', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                })
+                const response = await fetchWithAuth('/api/report')
                 items.value = await response.json() || []
             } catch (err) {
                 if (err.message !== "unauthorized") {
@@ -325,67 +256,24 @@ createApp({
             }
         }
 
-        const fetchDefaultConfig = async () => {
-            try {
-                const response = await fetchWithAuth('/api/config/default')
-                return await response.json()
-            } catch (err) {
-                console.error("Failed to fetch default config", err)
-                return null
-            }
-        }
-
-        const resetToDefaults = async () => {
-            const defaults = await fetchDefaultConfig()
-            if (defaults) {
-                localConfig.value = defaults
-                showSuccess("Reset to system defaults!")
-                if (currentTab.value === 'report') fetchReport()
-            }
-        }
-
-        const exportUserFile = () => {
-            const data = {
-                config: localConfig.value,
-                flips: flipsHistory.value,
-                failed_sells: failedSellsHistory.value
-            }
-            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
-            const url = URL.createObjectURL(blob)
-            const a = document.createElement('a')
-            a.href = url
-            a.download = `osrs_analyzer_profile_${Date.now()}.json`
-            document.body.appendChild(a)
-            a.click()
-            document.body.removeChild(a)
-            URL.revokeObjectURL(url)
-        }
-
-        const importUserFile = (event) => {
-            const file = event.target.files[0]
-            if (!file) return
-            const reader = new FileReader()
-            reader.onload = (e) => {
-                try {
-                    const data = JSON.parse(e.target.result)
-                    if (data.config) localConfig.value = data.config
-                    if (data.flips) flipsHistory.value = data.flips
-                    if (data.failed_sells) failedSellsHistory.value = data.failed_sells
-                    showSuccess("Profile imported successfully!")
-                    if (currentTab.value === 'report') fetchReport()
-                } catch (err) {
-                    showError("Failed to parse import file", err.stack)
-                }
-            }
-            reader.readAsText(file)
-            event.target.value = '' // reset input
-        }
-
         const fetchHistory = async () => {
-            // No-op, it's already in reactive variables tied to localStorage
+            if (!isAuthenticated.value) return
+            loading.value = true
+            try {
+                const [resFlips, resFailed] = await Promise.all([
+                    fetchWithAuth('/api/history/flips'),
+                    fetchWithAuth('/api/history/failed-buys')
+                ])
+                flipsHistory.value = await resFlips.json() || []
+                failedSellsHistory.value = await resFailed.json() || []
+            } catch (err) {
+                if (err.message !== "unauthorized") {
+                    showError(err.message, err.stackTrace)
+                }
+            } finally {
+                loading.value = false
+            }
         }
-
-
 
         const syncPrices = async () => {
             loading.value = true
@@ -456,24 +344,35 @@ createApp({
         const closeModals = () => { showFlipModal.value = false; showFailedModal.value = false; selectedItem.value = null }
 
         const submitFlipPayload = async (payload) => {
-            flipsHistory.value.unshift({
-                item_id: payload.item_id,
-                item_name: payload.item_name,
-                rating: payload.rating,
-                timestamp: new Date().toISOString(),
-                notes: payload.note
-            })
-            showSuccess('Flip recorded successfully!')
+            submitting.value = true
+            try {
+                await fetchWithAuth('/api/flips', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                })
+                showSuccess('Flip recorded successfully!')
+            } catch (err) {
+                if (err.message !== "unauthorized") showError(err.message, err.stackTrace)
+            } finally {
+                submitting.value = false
+            }
         }
 
         const submitFailedBuyPayload = async (payload) => {
-            failedSellsHistory.value.unshift({
-                item_id: payload.item_id,
-                item_name: payload.item_name,
-                timestamp: new Date().toISOString(),
-                notes: payload.note
-            })
-            showSuccess('Failed sell recorded successfully!')
+            submitting.value = true
+            try {
+                await fetchWithAuth('/api/failed-buys', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                })
+                showSuccess('Failed buy recorded successfully!')
+            } catch (err) {
+                if (err.message !== "unauthorized") showError(err.message, err.stackTrace)
+            } finally {
+                submitting.value = false
+            }
         }
 
         const submitFlip = async () => {
@@ -531,7 +430,7 @@ createApp({
             if (newTab === 'history') fetchHistory()
         })
 
-        onMounted(async () => {
+        onMounted(() => {
             // Initialize theme
             const savedTheme = localStorage.getItem('ge_analyzer_theme')
             if (savedTheme === 'light') {
@@ -541,26 +440,13 @@ createApp({
 
             checkAuth()
             if (isAuthenticated.value) {
-                // Initialize local config
-                const storedConfig = localStorage.getItem('ge_analyzer_config')
-                if (storedConfig) {
-                    try {
-                        localConfig.value = JSON.parse(storedConfig)
-                    } catch (e) {
-                        localConfig.value = await fetchDefaultConfig()
-                    }
-                } else {
-                    localConfig.value = await fetchDefaultConfig()
-                }
-
                 fetchItemDict()
                 fetchReport()
             }
         })
 
         return {
-            currentTab, items, itemDict, flipsHistory, failedSellsHistory, localConfig,
-            sortedItems, sortConfig, sortBy,
+            currentTab, items, itemDict, flipsHistory, failedSellsHistory,
             loading, submitting, error, errorStack, showStack, success, selectedFile,
             isAuthenticated, loginForm, login, logout,
             isDarkMode, toggleTheme,
@@ -569,7 +455,6 @@ createApp({
             formatNumber, getGoldColorClass, getWikiLink, formatDate, fetchReport, fetchHistory, syncPrices, syncMetadata,
             handleFileUpload, restoreBackup, recordFlip, recordFailedBuy, closeModals,
             submitFlip, submitFailedBuy, submitManualFlip, submitManualFailedBuy,
-            resetToDefaults, exportUserFile, importUserFile,
             clearError
         }
     }

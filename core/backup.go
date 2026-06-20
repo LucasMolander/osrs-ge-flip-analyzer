@@ -22,7 +22,7 @@ func BackupData() ([]byte, error) {
 		Files:     make(map[string]string),
 	}
 
-	dirs := []string{"flips", "failed_buys", "prices", "reports"}
+	dirs := []string{"flips", "failed_sells", "prices", "reports"}
 
 	for _, dir := range dirs {
 		files, err := Store.ListDir(dir)

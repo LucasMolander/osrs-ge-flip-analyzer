@@ -182,11 +182,19 @@ func AnalyzePrices(
 		}
 
 		// 9. Capital required for a full limit
-		capitalRequired := lowMod * int64(item.Limit)
+		affordableQty := int64(item.Limit)
+		if lowMod > 0 {
+			maxAffordable := capitalThreshold / lowMod
+			if maxAffordable < affordableQty {
+				affordableQty = maxAffordable
+			}
+		}
+		capitalRequired := lowMod * affordableQty
 
 		// 10. Compute scoring factors
-		potentialProfit := profitPerItem * int64(item.Limit)
-		roi := (float64(profitPerItem) / float64(lowMod)) * 100.0
+		potentialProfit := profitPerItem * affordableQty
+		roiMultiplier := float64(profitPerItem) / float64(lowMod)
+		roi := roiMultiplier * 100.0
 
 		// Capital Penalty Factor: K_cap / (K_cap + CapitalRequired)
 		capitalFactor := float64(capitalThreshold) / float64(capitalThreshold+capitalRequired)
@@ -199,14 +207,18 @@ func AnalyzePrices(
 		volumeRatioFactor := 1.0
 		limitVal := float64(item.Limit)
 		volumeVal := float64(volume)
-		if volumeVal <= 0.1*limitVal && !isTarget {
+		projected4hVolume := volumeVal * 4.0
+		if projected4hVolume <= 0.1*limitVal && !isTarget {
 			continue // Filtered out by volume ratio!
-		} else if volumeVal < limitVal {
-			ratio := volumeVal / limitVal
+		} else if projected4hVolume < limitVal {
+			ratio := projected4hVolume / limitVal
 			penalty := (1.0 - ratio) / 0.9
+			if penalty < 0 {
+				penalty = 0
+			}
 			volumeRatioFactor = 1.0 - config.VolumeRatioPenaltyMax*(penalty*penalty)
-			if volumeRatioFactor < 0 {
-				volumeRatioFactor = 0
+			if volumeRatioFactor < 0.01 {
+				volumeRatioFactor = 0.01
 			}
 		}
 
@@ -218,9 +230,12 @@ func AnalyzePrices(
 			continue // Filtered out by absolute volume!
 		} else if volumeVal < 100 {
 			penalty := (100.0 - volumeVal) / 90.0
+			if penalty < 0 {
+				penalty = 0
+			}
 			absoluteVolumeFactor = 1.0 - config.AbsoluteVolumePenaltyMax*(penalty*penalty)
-			if absoluteVolumeFactor < 0 {
-				absoluteVolumeFactor = 0
+			if absoluteVolumeFactor < 0.01 {
+				absoluteVolumeFactor = 0.01
 			}
 		}
 
@@ -228,27 +243,6 @@ func AnalyzePrices(
 		nudge := 1.0
 		if val, ok := nudgeMultipliers[id]; ok {
 			nudge = val
-		}
-
-		// Calculate estimated current price
-		currentPrice := int64(0)
-		if price.High != nil && price.Low != nil {
-			currentPrice = (*price.High + *price.Low) / 2
-		} else if price.High != nil {
-			currentPrice = *price.High
-		} else if price.Low != nil {
-			currentPrice = *price.Low
-		} else {
-			// Fallback to current hourly average if latest prices are missing
-			if volData, ok := volumes[fmt.Sprintf("%d", id)]; ok {
-				if volData.AvgHighPrice != nil && volData.AvgLowPrice != nil {
-					currentPrice = (*volData.AvgHighPrice + *volData.AvgLowPrice) / 2
-				} else if volData.AvgHighPrice != nil {
-					currentPrice = *volData.AvgHighPrice
-				} else if volData.AvgLowPrice != nil {
-					currentPrice = *volData.AvgLowPrice
-				}
-			}
 		}
 
 		// Calculate trend penalties
@@ -259,7 +253,7 @@ func AnalyzePrices(
 
 		// 1-hour trend
 		if h1, ok := hist1h[idStr]; ok {
-			if avg1h, valid := getHistoricAvg(h1); valid && currentPrice < avg1h {
+			if avg1h, valid := getHistoricAvg(h1); valid && highMod < avg1h {
 				trendMultiplier *= config.PriceTrendPenalty1h
 				priceTrendIndicators = append(priceTrendIndicators, "↓1h")
 			}
@@ -267,7 +261,7 @@ func AnalyzePrices(
 
 		// 24-hour trend
 		if h24, ok := hist24h[idStr]; ok {
-			if avg24h, valid := getHistoricAvg(h24); valid && currentPrice < avg24h {
+			if avg24h, valid := getHistoricAvg(h24); valid && highMod < avg24h {
 				trendMultiplier *= config.PriceTrendPenalty24h
 				priceTrendIndicators = append(priceTrendIndicators, "↓24h")
 			}
@@ -275,7 +269,7 @@ func AnalyzePrices(
 
 		// 30-day trend
 		if h30, ok := hist30d[idStr]; ok {
-			if avg30d, valid := getHistoricAvg(h30); valid && currentPrice < avg30d {
+			if avg30d, valid := getHistoricAvg(h30); valid && highMod < avg30d {
 				trendMultiplier *= config.PriceTrendPenalty30d
 				priceTrendIndicators = append(priceTrendIndicators, "↓30d")
 			}
@@ -303,7 +297,7 @@ func AnalyzePrices(
 		}
 
 		// Calculate final score
-		score := float64(potentialProfit) * capitalFactor * volumeRatioFactor * absoluteVolumeFactor * nudge * trendMultiplier * spikeMultiplier
+		score := float64(potentialProfit) * capitalFactor * volumeRatioFactor * absoluteVolumeFactor * nudge * trendMultiplier * spikeMultiplier * roiMultiplier
 
 		items = append(items, ReportItem{
 			ID:              item.ID,
@@ -362,7 +356,7 @@ func GenerateMarkdownReport(items []ReportItem, timestamp int64, capThreshold, v
 	md += fmt.Sprintf("- **Configured Reference Volume ($K_{vol}$):** `%d trades/hour` (Penalizes low-liquidity items)\n\n", volThreshold)
 
 	md += "## Top Recommended Flips\n\n"
-	md += "| Rank | Item Name | Score | Potential Profit | Profit/Item | Raw Spread | Adj Spread (Buy $\\to$ Sell) | Limit | Capital Req | ROI | Vol (hr) | Trend |\n"
+	md += "| Rank | Item Name | Score | Potential Profit | Profit/Item | Raw Spread | Adj Spread (Buy $\\to$ Sell) | Limit | Capital | ROI | Vol (hr) | Trend |\n"
 	md += "| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n"
 
 	displayLimit := limit

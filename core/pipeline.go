@@ -107,7 +107,7 @@ func DownloadMetadata(client *OSRSClient, timestamp int64) (map[int]ItemMetadata
 }
 
 // RunAnalysis orchestrates the fetching of prices, parsing, scoring, and report generation.
-func RunAnalysis(client *OSRSClient, capital, vol int64, limit int, forceDownload bool, filterName string, config *RankingConfig) ([]ReportItem, error) {
+func RunAnalysis(client *OSRSClient, capital, vol int64, limit int, forceDownload bool, filterName string, config *RankingConfig, flips []FlipRecord, failedSells []FailedSellRecord) ([]ReportItem, error) {
 	runTs := time.Now().Unix()
 
 	// 1. Download unless skipped
@@ -211,14 +211,10 @@ func RunAnalysis(client *OSRSClient, capital, vol int64, limit int, forceDownloa
 		return nil, fmt.Errorf("error loading 30d prices from %s: %w", prices30dPath, err)
 	}
 
-	// 5. Load historical nudges
-	nudges, err := LoadNudges(config)
-	if err != nil {
-		return nil, fmt.Errorf("error loading historical nudges: %w", err)
-	}
+	// 5. Load historical nudges (calculated beforehand and passed in)
+	nudges := CalculateNudges(config, flips, failedSells)
 
 	// 6. Run analysis
-	fmt.Println("Analyzing prices and generating report...")
 	reportItems := AnalyzePrices(prices, volumes, metadata, capital, vol, nudges, hist1h, hist24h, hist30d, vol5m, vol24h, filterName, config)
 
 	// 7. Save reports
@@ -240,93 +236,68 @@ func LoadJSON(path string, target interface{}) error {
 	return Store.Read(path, target)
 }
 
-func LoadNudges(config *RankingConfig) (map[int]float64, error) {
+func CalculateNudges(config *RankingConfig, flips []FlipRecord, failedSells []FailedSellRecord) map[int]float64 {
 	nudges := make(map[int]float64)
 	netNudges := make(map[int]float64)
+	weightSums := make(map[int]float64) // For calculating moving average
 
 	now := time.Now()
 
 	// 1. Process successful flips
-	flipEntries, err := Store.ListDir("flips")
-	if err == nil {
-		halfLifeFlips := time.Duration(config.FlipHalfLifeHours) * time.Hour
-		lambdaFlips := 0.69314718056 / halfLifeFlips.Seconds()
+	halfLifeFlips := time.Duration(config.FlipHalfLifeHours) * time.Hour
+	lambdaFlips := 0.69314718056 / halfLifeFlips.Seconds()
 
-		for _, name := range flipEntries {
-			if len(name) > 5 && name[:5] == "flip_" && name[len(name)-5:] == ".json" {
-				var itemID int
-				var ts int64
-				_, err := fmt.Sscanf(name[5:len(name)-5], "%d_%d", &itemID, &ts)
-				if err != nil {
-					continue
-				}
-
-				path := fmt.Sprintf("flips/%s", name)
-				var record FlipRecord
-				if err := LoadJSON(path, &record); err != nil {
-					continue
-				}
-
-				age := now.Sub(record.Timestamp).Seconds()
-				if age < 0 {
-					age = 0
-				}
-				weight := math.Exp(-lambdaFlips * age)
-
-				direction := 0.0
-				switch record.Rating {
-				case "Meh":
-					direction = config.FlipModifierMeh
-				case "Mid":
-					direction = config.FlipModifierMid
-				case "Good":
-					direction = config.FlipModifierGood
-				case "Great":
-					direction = config.FlipModifierGreat
-				}
-
-				netNudges[itemID] += weight * direction
-			}
+	for _, record := range flips {
+		itemID := record.ItemID
+		age := now.Sub(record.Timestamp).Seconds()
+		if age < 0 {
+			age = 0
 		}
+		weight := math.Exp(-lambdaFlips * age)
+
+		direction := 0.0
+		switch record.Rating {
+		case "Meh":
+			direction = config.FlipModifierMeh
+		case "Mid":
+			direction = config.FlipModifierMid
+		case "Good":
+			direction = config.FlipModifierGood
+		case "Great":
+			direction = config.FlipModifierGreat
+		}
+
+		netNudges[itemID] += weight * direction
+		weightSums[itemID] += weight
 	}
 
-	// 2. Process failed buys
-	failedEntries, err := Store.ListDir("failed_buys")
-	if err == nil {
-		halfLifeFailed := time.Duration(config.FailedBuyHalfLifeHours) * time.Hour
-		lambdaFailed := 0.69314718056 / halfLifeFailed.Seconds()
+	// 2. Process failed sells
+	halfLifeFailed := time.Duration(config.FailedSellHalfLifeHours) * time.Hour
+	lambdaFailed := 0.69314718056 / halfLifeFailed.Seconds()
 
-		for _, name := range failedEntries {
-			if len(name) > 11 && name[:11] == "failed_buy_" && name[len(name)-5:] == ".json" {
-				var itemID int
-				var ts int64
-				_, err := fmt.Sscanf(name[11:len(name)-5], "%d_%d", &itemID, &ts)
-				if err != nil {
-					continue
-				}
-
-				path := fmt.Sprintf("failed_buys/%s", name)
-				var record FailedBuyRecord
-				if err := LoadJSON(path, &record); err != nil {
-					continue
-				}
-
-				age := now.Sub(record.Timestamp).Seconds()
-				if age < 0 {
-					age = 0
-				}
-				weight := math.Exp(-lambdaFailed * age)
-
-				// Static heavy penalty per failed buy
-				direction := config.FailedBuyPenalty
-				netNudges[itemID] += weight * direction
-			}
+	for _, record := range failedSells {
+		itemID := record.ItemID
+		age := now.Sub(record.Timestamp).Seconds()
+		if age < 0 {
+			age = 0
 		}
+		weight := math.Exp(-lambdaFailed * age)
+
+		// Static heavy penalty per failed sell
+		direction := config.FailedSellPenalty
+		netNudges[itemID] += weight * direction
+		weightSums[itemID] += weight
 	}
 
-	// 3. Compile and clamp multipliers
-	for itemID, netNudge := range netNudges {
-		multiplier := 1.0 + netNudge
+	// Calculate Exponential Moving Average (EMA) and apply to nudges
+	for itemID, sum := range netNudges {
+		totalWeight := weightSums[itemID]
+		avg := sum
+		if totalWeight > 0 {
+			avg = sum / totalWeight
+		}
+
+		multiplier := 1.0 + avg
 		// Clamp multiplier between configured min and max
 		if multiplier < config.NudgeMin {
 			multiplier = config.NudgeMin
@@ -337,6 +308,6 @@ func LoadNudges(config *RankingConfig) (map[int]float64, error) {
 		nudges[itemID] = multiplier
 	}
 
-	return nudges, nil
+	return nudges
 }
 

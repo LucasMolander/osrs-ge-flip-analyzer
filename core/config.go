@@ -20,8 +20,8 @@ type RankingConfig struct {
 	FlipModifierGreat float64 `json:"flip_modifier_great"`  // e.g. 0.20
 
 	// Modifiers for Failed Buys (Values subtracted from the multiplier)
-	FailedBuyHalfLifeHours float64 `json:"failed_buy_half_life_hours"` // Time for penalty to halve (e.g. 72.0)
-	FailedBuyPenalty       float64 `json:"failed_buy_penalty"`         // Base penalty (e.g. -0.40)
+	FailedSellHalfLifeHours float64 `json:"failed_sell_half_life_hours"` // Time for penalty to halve (e.g. 72.0)
+	FailedSellPenalty       float64 `json:"failed_sell_penalty"`         // Base penalty (e.g. -0.40)
 
 	// Nudge Constraints (Absolute min/max limits for historical multipliers)
 	NudgeMin float64 `json:"nudge_min"` // e.g. 0.05
@@ -38,9 +38,9 @@ type RankingConfig struct {
 	PriceTrendPenalty24h float64 `json:"price_trend_penalty_24h"` // e.g. 0.90
 	PriceTrendPenalty30d float64 `json:"price_trend_penalty_30d"` // e.g. 0.95
 
-	// Volume Spike Penalties (Multipliers applied during volatile volume spikes)
-	VolumeSpike5mMultiplier  float64 `json:"volume_spike_5m_multiplier"`  // e.g. 0.50
-	VolumeSpike24hMultiplier float64 `json:"volume_spike_24h_multiplier"` // e.g. 0.80
+	// Volume Spikes
+	VolumeSpike5mMultiplier  float64 `json:"volume_spike_5m_multiplier"`  // Reward for sudden 5m volume spike (e.g. 1.50)
+	VolumeSpike24hMultiplier float64 `json:"volume_spike_24h_multiplier"` // Reward for sudden 1h volume relative to 24h (e.g. 1.20)
 }
 
 // DefaultRankingConfig returns a configuration struct matching the original hardcoded values.
@@ -53,8 +53,8 @@ func DefaultRankingConfig() *RankingConfig {
 		FlipModifierMid:           0.0,
 		FlipModifierGood:          0.10,
 		FlipModifierGreat:         0.20,
-		FailedBuyHalfLifeHours:    72.0,
-		FailedBuyPenalty:          -0.40,
+		FailedSellHalfLifeHours:   72.0,
+		FailedSellPenalty:         -0.40,
 		NudgeMin:                  0.05,
 		NudgeMax:                  2.0,
 		CapitalPenaltyBaseWeight:  0.5,
@@ -64,8 +64,8 @@ func DefaultRankingConfig() *RankingConfig {
 		PriceTrendPenalty1h:       0.80,
 		PriceTrendPenalty24h:      0.90,
 		PriceTrendPenalty30d:      0.95,
-		VolumeSpike5mMultiplier:   0.50,
-		VolumeSpike24hMultiplier:  0.80,
+		VolumeSpike5mMultiplier:   1.50,
+		VolumeSpike24hMultiplier:  1.20,
 	}
 }
 

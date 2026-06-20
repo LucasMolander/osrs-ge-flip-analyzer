@@ -93,7 +93,7 @@ func handleReportCommand() {
 	}
 
 	client := core.NewClient(*ua)
-	reportItems, err := core.RunAnalysis(client, *capital, *volThreshold, *limit, !*skipDownload, filterName, config)
+	reportItems, err := core.RunAnalysis(client, *capital, *volThreshold, *limit, !*skipDownload, filterName, config, nil, nil)
 	if err != nil {
 		log.Fatalf("Analysis failed: %v", err)
 	}
@@ -181,7 +181,7 @@ func handleRecordFlipCommand() {
 	fmt.Printf("Successfully logged flip for item %d to: %s\n", *id, path)
 }
 
-func handleRecordFailedBuyCommand() {
+func handleRecordFailedSellCommand() {
 	cmd := flag.NewFlagSet("record-failed-buy", flag.ExitOnError)
 	id := cmd.Int("id", 0, "OSRS Item ID (required)")
 	name := cmd.String("name", "", "Optional item name")
@@ -205,15 +205,15 @@ func handleRecordFailedBuyCommand() {
 		ts = t.Unix()
 	}
 
-	record := core.FailedBuyRecord{
+	record := core.FailedSellRecord{
 		ItemID:    *id,
 		ItemName:  *name,
 		Timestamp: t,
 		Notes:     *note,
 	}
 
-	prefix := fmt.Sprintf("failed_buy_%d", *id)
-	path, err := core.SaveJSON("failed_buys", prefix, ts, record)
+	prefix := fmt.Sprintf("failed_sell_%d", *id)
+	path, err := core.SaveJSON("failed_sells", prefix, ts, record)
 	if err != nil {
 		log.Fatalf("Error saving failed buy record: %v", err)
 	}
@@ -277,8 +277,8 @@ func displayTable(items []core.ReportItem, limit int) {
 		displayLimit = len(items)
 	}
 	fmt.Printf("\nTop %d Recommended Flips:\n", displayLimit)
-	fmt.Printf("%-4s %-30s %-10s %-10s %-9s %-15s %-18s %-6s %-11s %-7s %-8s %-10s\n",
-		"Rank", "Item Name", "Score", "Pot.Profit", "Profit/ea", "Raw Spread", "Adj Spread", "Limit", "Cap.Req", "ROI", "Vol (hr)", "Trend")
+	fmt.Printf("%-4s %-30s %-10s %-10s %-9s %-11s %-15s %-18s %-6s %-7s %-8s %-10s\n",
+		"Rank", "Item Name", "Score", "Pot.Profit", "Profit/ea", "Capital", "Raw Spread", "Adj Spread", "Limit", "ROI", "Vol (hr)", "Trend")
 	
 	for i := 0; i < displayLimit; i++ {
 		item := items[i]
@@ -313,16 +313,16 @@ func displayTable(items []core.ReportItem, limit int) {
 
 		roiStr := fmt.Sprintf("%.1f%%", item.ROI)
 
-		fmt.Printf("%-4d %-30s %-10.1f %-10s %-9s %-15s %-18s %-6s %-11s %-7s %-8s %-10s\n",
+		fmt.Printf("%-4d %-30s %-10.1f %-10s %-9s %-11s %-15s %-18s %-6s %-7s %-8s %-10s\n",
 			i+1,
 			name,
 			item.Score,
 			formatCompact(item.PotentialProfit),
 			formatCompact(item.ProfitPerItem),
+			formatCompact(item.CapitalRequired),
 			rawSpreadStr,
 			adjSpreadStr,
 			formatCompact(int64(item.BuyLimit)),
-			formatCompact(item.CapitalRequired),
 			roiStr,
 			formatCompact(item.Volume),
 			trendStr,

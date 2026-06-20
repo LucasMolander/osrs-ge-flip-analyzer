@@ -2,8 +2,13 @@ package web
 
 import (
 	"fmt"
+	"net"
 	"net/http"
 	"os"
+	"strings"
+	"sync"
+
+	"golang.org/x/time/rate"
 
 	"github.com/lucasmolander/osrs-ge-flip-analyzer/core"
 )
@@ -32,15 +37,12 @@ func StartServer(port string, client *core.OSRSClient, capital, volThreshold int
 	// API router wrapped with BasicAuth
 	apiMux := http.NewServeMux()
 	apiMux.HandleFunc("/api/report", app.apiReportHandler)
-	apiMux.HandleFunc("/api/flips", app.apiRecordFlipHandler)
-	apiMux.HandleFunc("/api/failed-buys", app.apiRecordFailedBuyHandler)
 	apiMux.HandleFunc("/api/items", app.apiItemsHandler)
 	apiMux.HandleFunc("/api/sync/prices", app.apiSyncPricesHandler)
 	apiMux.HandleFunc("/api/sync/metadata", app.apiSyncMetadataHandler)
 	apiMux.HandleFunc("/api/backup", app.apiBackupHandler)
 	apiMux.HandleFunc("/api/restore", app.apiRestoreHandler)
-	apiMux.HandleFunc("/api/history/flips", app.apiFlipsHistoryHandler)
-	apiMux.HandleFunc("/api/history/failed-buys", app.apiFailedBuysHistoryHandler)
+	apiMux.HandleFunc("/api/config/default", app.apiConfigDefaultHandler)
 
 	// App-Level Authentication
 	username := os.Getenv("AUTH_USERNAME")
@@ -74,13 +76,16 @@ func StartServer(port string, client *core.OSRSClient, capital, volThreshold int
 
 	authApiMux := BasicAuthMiddleware(apiMux, username, password)
 
+	// Rate limiter: 5 requests per second, burst of 10
+	limiter := NewIPRateLimiter(rate.Limit(5), 10)
+
 	// Main router
 	mux := http.NewServeMux()
-	mux.Handle("/api/", authApiMux) // All /api/ routes are authenticated
+	mux.Handle("/api/", RateLimitMiddleware(authApiMux, limiter)) // All /api/ routes are authenticated and rate-limited
 
-	// Static File Server for the Vue 3 Frontend (Unauthenticated)
+	// Static File Server for the Vue 3 Frontend (Unauthenticated, but rate-limited)
 	fs := http.FileServer(http.Dir("./web/frontend"))
-	mux.Handle("/", fs)
+	mux.Handle("/", RateLimitMiddleware(fs, limiter))
 
 	addr := fmt.Sprintf(":%s", port)
 	fmt.Printf("Starting web dashboard on http://localhost:%s\n", port)
@@ -98,6 +103,65 @@ func BasicAuthMiddleware(next http.Handler, username, password string) http.Hand
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// IPRateLimiter controls the rate of requests per IP address.
+type IPRateLimiter struct {
+	ips map[string]*rate.Limiter
+	mu  *sync.RWMutex
+	r   rate.Limit
+	b   int
+}
+
+// NewIPRateLimiter creates a new rate limiter that allows r events per second with a burst of b.
+func NewIPRateLimiter(r rate.Limit, b int) *IPRateLimiter {
+	return &IPRateLimiter{
+		ips: make(map[string]*rate.Limiter),
+		mu:  &sync.RWMutex{},
+		r:   r,
+		b:   b,
+	}
+}
+
+func (i *IPRateLimiter) AddIP(ip string) *rate.Limiter {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	limiter := rate.NewLimiter(i.r, i.b)
+	i.ips[ip] = limiter
+	return limiter
+}
+
+func (i *IPRateLimiter) GetLimiter(ip string) *rate.Limiter {
+	i.mu.RLock()
+	limiter, exists := i.ips[ip]
+	if !exists {
+		i.mu.RUnlock()
+		return i.AddIP(ip)
+	}
+	i.mu.RUnlock()
+	return limiter
+}
+
+// RateLimitMiddleware wraps an http.Handler to enforce IP-based rate limiting.
+func RateLimitMiddleware(next http.Handler, limiter *IPRateLimiter) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ip := r.RemoteAddr
+		if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
+			ips := strings.Split(forwarded, ",")
+			ip = strings.TrimSpace(ips[0])
+		} else {
+			if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+				ip = host
+			}
+		}
+
+		if !limiter.GetLimiter(ip).Allow() {
+			http.Error(w, "429 Too Many Requests - Rate limit exceeded", http.StatusTooManyRequests)
+			return
+		}
+
 		next.ServeHTTP(w, r)
 	})
 }

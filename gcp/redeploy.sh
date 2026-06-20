@@ -66,6 +66,7 @@ if ! gcloud run deploy "${SERVICE_NAME}" \
     --cpu="${CPU}" \
     --memory="${MEMORY}" \
     --project="${PROJECT_ID}" \
+    --max-instances="3" \
     --allow-unauthenticated; then
   echo "⚠️  Failed to deploy to Cloud Run. The service may not be provisioned yet."
   echo "   I tried! Exiting..."

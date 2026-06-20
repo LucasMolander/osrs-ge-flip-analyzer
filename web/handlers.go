@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"runtime/debug"
-	"time"
 
 	"github.com/lucasmolander/osrs-ge-flip-analyzer/core"
 )
@@ -36,14 +35,27 @@ func sendError(w http.ResponseWriter, err error, message string, statusCode int)
 
 // apiReportHandler triggers a fresh analysis using cached/downloaded data and returns the top flips.
 func (app *AppServer) apiReportHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
+	if r.Method != http.MethodGet && r.Method != http.MethodPost {
 		sendError(w, nil, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
+	var req core.ReportRequest
+	config := app.Config
+	
+	if r.Method == http.MethodPost {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			sendError(w, err, "Invalid JSON payload", http.StatusBadRequest)
+			return
+		}
+		if req.Config != nil {
+			config = req.Config
+		}
+	}
+
 	// Always skip download during web requests to prevent API rate limiting / latency.
 	// A background cron job should ideally update the prices.
-	flips, err := core.RunAnalysis(app.Client, app.Capital, app.VolThreshold, app.Limit, false, "", app.Config)
+	flips, err := core.RunAnalysis(app.Client, app.Capital, app.VolThreshold, app.Limit, false, "", config, req.Flips, req.FailedSells)
 	if err != nil {
 		sendError(w, err, "Failed to generate report", http.StatusInternalServerError)
 		return
@@ -60,96 +72,4 @@ func (app *AppServer) apiReportHandler(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewEncoder(w).Encode(topFlips); err != nil {
 		fmt.Printf("Error encoding JSON response: %v\n", err)
 	}
-}
-
-// apiRecordFlipHandler records a successful flip.
-func (app *AppServer) apiRecordFlipHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		sendError(w, nil, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	var req struct {
-		ItemID    int    `json:"item_id"`
-		ItemName  string `json:"item_name"`
-		Rating    string `json:"rating"`
-		Note      string `json:"note"`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		sendError(w, err, "Invalid JSON body", http.StatusBadRequest)
-		return
-	}
-
-	if req.ItemID <= 0 {
-		sendError(w, nil, "item_id must be > 0", http.StatusBadRequest)
-		return
-	}
-
-	validRatings := map[string]bool{"Meh": true, "Mid": true, "Good": true, "Great": true}
-	if !validRatings[req.Rating] {
-		sendError(w, nil, "rating must be Meh, Mid, Good, or Great", http.StatusBadRequest)
-		return
-	}
-
-	ts := time.Now().Unix()
-	record := core.FlipRecord{
-		ItemID:    req.ItemID,
-		ItemName:  req.ItemName,
-		Rating:    req.Rating,
-		Timestamp: time.Unix(ts, 0),
-		Notes:     req.Note,
-	}
-
-	prefix := fmt.Sprintf("flip_%d", req.ItemID)
-	if _, err := core.SaveJSON("flips", prefix, ts, record); err != nil {
-		sendError(w, err, "Failed to save flip record", http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"status": "success"})
-}
-
-// apiRecordFailedBuyHandler records an unsuccessful buy attempt.
-func (app *AppServer) apiRecordFailedBuyHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		sendError(w, nil, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	var req struct {
-		ItemID      int     `json:"item_id"`
-		ItemName    string  `json:"item_name"`
-		Note        string  `json:"note"`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		sendError(w, err, "Invalid JSON body", http.StatusBadRequest)
-		return
-	}
-
-	if req.ItemID <= 0 {
-		sendError(w, nil, "item_id must be > 0", http.StatusBadRequest)
-		return
-	}
-
-	ts := time.Now().Unix()
-	record := core.FailedBuyRecord{
-		ItemID:      req.ItemID,
-		ItemName:    req.ItemName,
-		Timestamp:   time.Unix(ts, 0),
-		Notes:       req.Note,
-	}
-
-	prefix := fmt.Sprintf("failed_buy_%d", req.ItemID)
-	if _, err := core.SaveJSON("failed_buys", prefix, ts, record); err != nil {
-		sendError(w, err, "Failed to save failed buy record", http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"status": "success"})
 }

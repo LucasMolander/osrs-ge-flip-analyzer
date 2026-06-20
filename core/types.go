@@ -51,12 +51,19 @@ type FlipRecord struct {
 	Notes     string    `json:"notes,omitempty"`
 }
 
-// FailedBuyRecord represents an unsuccessful or partially filled buy order.
-type FailedBuyRecord struct {
+// FailedSellRecord represents an unsuccessful or unprofitable sell order.
+type FailedSellRecord struct {
 	ItemID    int       `json:"item_id"`
 	ItemName  string    `json:"item_name"`
 	Timestamp time.Time `json:"timestamp"`
 	Notes     string    `json:"notes,omitempty"`
+}
+
+// ReportRequest represents the incoming JSON payload for /api/report
+type ReportRequest struct {
+	Config      *RankingConfig     `json:"config,omitempty"`
+	Flips       []FlipRecord       `json:"flips,omitempty"`
+	FailedSells []FailedSellRecord `json:"failed_sells,omitempty"`
 }
 
 // ReportItem represents a completed analysis entry for an item, sorted and ranked.

@@ -141,58 +141,13 @@ func (app *AppServer) apiRestoreHandler(w http.ResponseWriter, r *http.Request) 
 	json.NewEncoder(w).Encode(map[string]string{"status": "success", "message": "Database restored successfully."})
 }
 
-// apiFlipsHistoryHandler returns a list of all recorded flips
-func (app *AppServer) apiFlipsHistoryHandler(w http.ResponseWriter, r *http.Request) {
+// apiConfigDefaultHandler returns the system's default RankingConfig
+func (app *AppServer) apiConfigDefaultHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		sendError(w, nil, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	var flips []core.FlipRecord
-	files, err := core.Store.ListDir("flips")
-	if err == nil {
-		for _, name := range files {
-			path := "flips/" + name
-			var record core.FlipRecord
-			if err := core.LoadJSON(path, &record); err == nil {
-				flips = append(flips, record)
-			}
-		}
-	}
-
-	// Sort descending by timestamp
-	sort.Slice(flips, func(i, j int) bool {
-		return flips[i].Timestamp.After(flips[j].Timestamp)
-	})
-
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(flips)
-}
-
-// apiFailedBuysHistoryHandler returns a list of all recorded failed buys
-func (app *AppServer) apiFailedBuysHistoryHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		sendError(w, nil, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	var failed []core.FailedBuyRecord
-	files, err := core.Store.ListDir("failed_buys")
-	if err == nil {
-		for _, name := range files {
-			path := "failed_buys/" + name
-			var record core.FailedBuyRecord
-			if err := core.LoadJSON(path, &record); err == nil {
-				failed = append(failed, record)
-			}
-		}
-	}
-
-	// Sort descending by timestamp
-	sort.Slice(failed, func(i, j int) bool {
-		return failed[i].Timestamp.After(failed[j].Timestamp)
-	})
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(failed)
+	json.NewEncoder(w).Encode(core.DefaultRankingConfig())
 }

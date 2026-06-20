@@ -6,8 +6,8 @@
   "flip_modifier_mid": 0,
   "flip_modifier_good": 0.1,
   "flip_modifier_great": 0.2,
-  "failed_buy_half_life_hours": 72,
-  "failed_buy_penalty": -0.4,
+  "failed_sell_half_life_hours": 72,
+  "failed_sell_penalty": -0.4,
   "nudge_min": 0.05,
   "nudge_max": 2,
   "capital_penalty_base_weight": 0.5,
@@ -17,6 +17,6 @@
   "price_trend_penalty_1h": 0.8,
   "price_trend_penalty_24h": 0.9,
   "price_trend_penalty_30d": 0.95,
-  "volume_spike_5m_multiplier": 0.5,
-  "volume_spike_24h_multiplier": 0.8
+  "volume_spike_5m_multiplier": 1.5,
+  "volume_spike_24h_multiplier": 1.2
 }

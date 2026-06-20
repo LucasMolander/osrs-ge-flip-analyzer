@@ -122,6 +122,9 @@ resource "google_cloud_run_v2_service" "server" {
   ingress      = "INGRESS_TRAFFIC_ALL"
 
   template {
+    scaling {
+      max_instance_count = 3
+    }
     service_account = google_service_account.run_sa.email
     containers {
       image = var.image_url

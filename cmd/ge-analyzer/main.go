@@ -48,8 +48,8 @@ func main() {
 		handleReportCommand()
 	case "record-flip":
 		handleRecordFlipCommand()
-	case "record-failed-buy":
-		handleRecordFailedBuyCommand()
+	case "record-failed-sell":
+		handleRecordFailedSellCommand()
 	case "backup":
 		handleBackupCommand()
 	case "restore":

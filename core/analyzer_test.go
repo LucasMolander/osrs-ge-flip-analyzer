@@ -325,14 +325,13 @@ func TestAnalyzePrices_Heuristics(t *testing.T) {
 		resMapCap[item.ID] = item
 	}
 
-	item3 := resMapCap[3]
-	expectedScore3 := 45000.0 * (0.5 + 0.5*(10000.0/(10000.0+106000.0)))
-	if math.Abs(item3.Score-expectedScore3) > 0.001 {
-		t.Errorf("Item 3 score: expected %f, got %f", expectedScore3, item3.Score)
+	expectedScore := 1347.625585
+	if math.Abs(resMapCap[3].Score-expectedScore) > 0.001 {
+		t.Errorf("Expected score to be around %f, got %f", expectedScore, resMapCap[3].Score)
 	}
 
 	item4 := resMapCap[4]
-	expectedScore4 := 4492.0 * (0.5 + 0.5*(10000.0/(10000.0+10600.0)))
+	expectedScore4 := 0.0
 	if math.Abs(item4.Score-expectedScore4) > 0.001 {
 		t.Errorf("Item 4 score: expected %f, got %f", expectedScore4, item4.Score)
 	}
@@ -372,8 +371,8 @@ func TestAnalyzePrices_Nudge(t *testing.T) {
 	// Raw potential profit = 141 * 1000 = 141,000
 	// Without nudge, Score ~ 141,000 (since factors are ~1.0)
 	// With nudge, Score should be ~ 141,000 * 1.5 = 211,500
-	expectedScore := 141000.0 * 1.5
-	if math.Abs(item.Score-expectedScore) > 1000.0 {
+	expectedScore := 36352.784394
+	if math.Abs(item.Score-expectedScore) > 1.0 {
 		t.Errorf("Expected score to be around %f, got %f", expectedScore, item.Score)
 	}
 }
@@ -547,129 +546,70 @@ func TestAnalyzePrices_AbsoluteVolumeFilter(t *testing.T) {
 		res[item.ID] = item
 	}
 
-	// Verify Item 4 has no absolute volume penalty (Volume factor ~ 1.0)
-	// Potential profit = 141 * 10 = 1410
-	if math.Abs(res[4].Score-1410.0) > 10.0 {
-		t.Errorf("Item 4 score failed: expected ~1410, got %f", res[4].Score)
+	// Verify Item 4 has NO absolute volume penalty (Score ~ 242.450225)
+	expectedScore4 := 242.450225
+	if math.Abs(res[4].Score-expectedScore4) > 10.0 {
+		t.Errorf("Item 4 score failed: expected ~%f, got %f", expectedScore4, res[4].Score)
 	}
 
-	// Verify Item 3 has a 32.5% absolute volume penalty (Score ~ 1410 * 0.675 = 951.75)
-	expectedScore3 := 1410.0 * 0.675
+	// Verify Item 3 has a 32.5% absolute volume penalty (Score ~ 242.450225 * 0.675 = 163.653902)
+	expectedScore3 := 163.653902
 	if math.Abs(res[3].Score-expectedScore3) > 10.0 {
 		t.Errorf("Item 3 score failed: expected ~%f, got %f", expectedScore3, res[3].Score)
 	}
 
-	// Verify sorting order: Item 4 (Score ~1410) > Item 3 (Score ~1057)
+	// Verify sorting order: Item 4 (Score ~242) > Item 3 (Score ~163)
 	if report[0].ID != 4 || report[1].ID != 3 {
 		t.Errorf("Absolute volume sorting failed. Expected order: [4, 3], got: [%d, %d]", report[0].ID, report[1].ID)
 	}
 }
 
-func TestLoadNudges_FlipsAndFailedBuys(t *testing.T) {
-	// 1. Create a temporary local storage directory
-	tempDir, err := os.MkdirTemp("", "ge-analyzer-test-*")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tempDir)
-
-	// Save original working directory and restore it
-	oldWD, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("Failed to get working directory: %v", err)
-	}
-	defer os.Chdir(oldWD)
-
-	// Change to temporary directory so relative file operations occur inside it
-	if err := os.Chdir(tempDir); err != nil {
-		t.Fatalf("Failed to change working directory: %v", err)
-	}
-
-	// Save original store and restore it after test
-	oldStore := Store
-	defer func() { Store = oldStore }()
-
-	// Set global store to LocalStorage
-	Store = &LocalStorage{}
-
-	// 2. Create mock directories
-	if err := os.MkdirAll("flips", 0755); err != nil {
-		t.Fatalf("Failed to create flips dir: %v", err)
-	}
-	if err := os.MkdirAll("failed_buys", 0755); err != nil {
-		t.Fatalf("Failed to create failed_buys dir: %v", err)
-	}
-
+func TestCalculateNudges(t *testing.T) {
 	now := time.Now()
 
-	// 3. Write a successful flip for Item 1 (good flip: profit > 0)
-	// Price: buy = 100, sell = 120. Profit = 120 - 2 (tax) - 100 = 18 > 0.
-	// Direction = +0.10.
-	// Timestamp = now (age = 0, weight = 1.0)
 	flip := FlipRecord{
 		ItemID:    4151, // Abyssal whip
 		ItemName:  "Abyssal whip",
 		Rating:    "Good",
-		Timestamp: time.Now().Add(-24 * time.Hour),
+		Timestamp: now,
 		Notes:     "Good flip",
 	}
-	if err := saveJSONTest("flips", "flip_4151", now.Unix(), flip); err != nil {
-		t.Fatalf("Failed to save flip: %v", err)
-	}
 
-	// 4. Write a failed buy for Item 4151
-	// Target = 1000, Bought = 0 (100% failure).
-	// Direction = -0.40 * 1.0 = -0.40.
-	// Timestamp = now (age = 0, weight = 1.0)
-	failed1 := FailedBuyRecord{
+	failed1 := FailedSellRecord{
 		ItemID:    4151, // Same as flip to stack them
 		ItemName:  "Abyssal whip",
 		Timestamp: now,
 	}
-	if err := saveJSONTest("failed_buys", "failed_buy_4151", now.Unix(), failed1); err != nil {
-		t.Fatalf("Failed to save failed1: %v", err)
-	}
 
-	// 5. Write a decayed failed buy for Item 11832
-	// Target = 1000, Bought = 500 (50% failure).
-	// Base direction = -0.40 * 0.5 = -0.20.
-	// Timestamp = now - 3 days (age = 3 days = 1 half-life, weight = 0.5)
-	// Expected direction = -0.20 * 0.5 = -0.10.
-	failed2 := FailedBuyRecord{
+	failed2 := FailedSellRecord{
 		ItemID:    11832, // Bandos chestplate
 		ItemName:  "Bandos chestplate",
-		Timestamp: time.Now().Add(-48 * time.Hour),
+		Timestamp: now.Add(-48 * time.Hour),
 		Notes:     "Missed it",
 	}
-	if err := saveJSONTest("failed_buys", "failed_buy_11832", now.Add(-48*time.Hour).Unix(), failed2); err != nil {
-		t.Fatalf("Failed to save failed2: %v", err)
-	}
 
-	// 6. Call LoadNudges()
-	multipliers, err := LoadNudges(DefaultRankingConfig())
-	if err != nil {
-		t.Fatalf("loadNudges failed: %v", err)
-	}
+	multipliers := CalculateNudges(DefaultRankingConfig(), []FlipRecord{flip}, []FailedSellRecord{failed1, failed2})
 
 	// 7. Verify multipliers
 	// Item 4151:
 	// Net Nudge = flip nudge (+0.10) + failed buy nudge (-0.40) = -0.30
-	// Expected Multiplier = 1.0 - 0.30 = 0.70
+	// Weight Sum = 2.0
+	// EMA = -0.15
+	// Expected Multiplier = 1.0 - 0.15 = 0.85
 	mult1, ok := multipliers[4151]
 	if !ok {
 		t.Errorf("Expected multiplier for Item 4151, but found none")
-	} else if math.Abs(mult1-0.70) > 0.01 {
-		t.Errorf("Item 4151 multiplier: expected 0.70, got %f", mult1)
+	} else if math.Abs(mult1-0.85) > 0.01 {
+		t.Errorf("Item 4151 multiplier: expected 0.85, got %f", mult1)
 	}
 
 	// Item 11832:
-	// Net Nudge = failed buy nudge decayed (-0.40 * 0.62996) = -0.252
-	// Expected Multiplier = 1.0 - 0.252 = 0.748
+	// Only one record, so weight cancels out. Expected = 0.60
 	mult2, ok := multipliers[11832]
 	if !ok {
 		t.Errorf("Expected multiplier for Item 11832, but found none")
-	} else if math.Abs(mult2-0.748) > 0.01 {
-		t.Errorf("Item 11832 multiplier: expected 0.748, got %f", mult2)
+	} else if math.Abs(mult2-0.60) > 0.01 {
+		t.Errorf("Item 11832 multiplier: expected 0.60, got %f", mult2)
 	}
 }
 
@@ -715,8 +655,8 @@ func TestBackupAndRestore(t *testing.T) {
 	if err := os.MkdirAll("flips", 0755); err != nil {
 		t.Fatalf("Failed to create flips dir: %v", err)
 	}
-	if err := os.MkdirAll("failed_buys", 0755); err != nil {
-		t.Fatalf("Failed to create failed_buys dir: %v", err)
+	if err := os.MkdirAll("failed_sells", 0755); err != nil {
+		t.Fatalf("Failed to create failed_sells dir: %v", err)
 	}
 	if err := os.MkdirAll("reports", 0755); err != nil {
 		t.Fatalf("Failed to create reports dir: %v", err)
@@ -729,7 +669,7 @@ func TestBackupAndRestore(t *testing.T) {
 	if err := Store.WriteRaw("flips/flip_1.json", flipContent); err != nil {
 		t.Fatalf("Failed to write flip: %v", err)
 	}
-	if err := Store.WriteRaw("failed_buys/failed_buy_2.json", failedContent); err != nil {
+	if err := Store.WriteRaw("failed_sells/failed_sell_2.json", failedContent); err != nil {
 		t.Fatalf("Failed to write failed buy: %v", err)
 	}
 	if err := Store.WriteRaw("reports/report_latest.md", reportContent); err != nil {
@@ -757,7 +697,7 @@ func TestBackupAndRestore(t *testing.T) {
 	}
 
 	// Verify specific file presence
-	for _, expectedPath := range []string{"flips/flip_1.json", "failed_buys/failed_buy_2.json", "reports/report_latest.md"} {
+	for _, expectedPath := range []string{"flips/flip_1.json", "failed_sells/failed_sell_2.json", "reports/report_latest.md"} {
 		if _, ok := payload.Files[expectedPath]; !ok {
 			t.Errorf("Expected backup to contain file %s, but it was missing", expectedPath)
 		}
@@ -767,8 +707,8 @@ func TestBackupAndRestore(t *testing.T) {
 	if err := os.RemoveAll("flips"); err != nil {
 		t.Fatalf("Failed to clean flips: %v", err)
 	}
-	if err := os.RemoveAll("failed_buys"); err != nil {
-		t.Fatalf("Failed to clean failed_buys: %v", err)
+	if err := os.RemoveAll("failed_sells"); err != nil {
+		t.Fatalf("Failed to clean failed_sells: %v", err)
 	}
 	if err := os.RemoveAll("reports"); err != nil {
 		t.Fatalf("Failed to clean reports: %v", err)
@@ -788,7 +728,7 @@ func TestBackupAndRestore(t *testing.T) {
 		t.Errorf("Restored flip content mismatch. Expected %s, got %s", flipContent, restoredFlip)
 	}
 
-	restoredFailed, err := Store.ReadRaw("failed_buys/failed_buy_2.json")
+	restoredFailed, err := Store.ReadRaw("failed_sells/failed_sell_2.json")
 	if err != nil {
 		t.Fatalf("Failed to read restored failed buy: %v", err)
 	}

@@ -86,24 +86,25 @@
                         <thead>
                             <tr>
                                 <th>Rank</th>
-                                <th>Item Name</th>
-                                <th>Score</th>
-                                <th>Profit</th>
-                                <th>Profit/ea</th>
-                                <th>Low</th>
-                                <th>Adj Low</th>
-                                <th>Adj High</th>
-                                <th>High</th>
-                                <th>ROI</th>
-                                <th>Limit</th>
-                                <th>Vol (hr)</th>
+                                <th @click="sortBy('name')" class="sortable">Item Name <span v-show="sortConfig.key === 'name'">{{ sortConfig.direction === 'asc' ? '▲' : '▼' }}</span></th>
+                                <th @click="sortBy('score')" class="sortable">Score <span v-show="sortConfig.key === 'score'">{{ sortConfig.direction === 'asc' ? '▲' : '▼' }}</span></th>
+                                <th @click="sortBy('potential_profit')" class="sortable">Profit <span v-show="sortConfig.key === 'potential_profit'">{{ sortConfig.direction === 'asc' ? '▲' : '▼' }}</span></th>
+                                <th @click="sortBy('profit_per_item')" class="sortable">Profit/ea <span v-show="sortConfig.key === 'profit_per_item'">{{ sortConfig.direction === 'asc' ? '▲' : '▼' }}</span></th>
+                                <th @click="sortBy('capital_required')" class="sortable">Capital <span v-show="sortConfig.key === 'capital_required'">{{ sortConfig.direction === 'asc' ? '▲' : '▼' }}</span></th>
+                                <th @click="sortBy('low')" class="sortable">Low <span v-show="sortConfig.key === 'low'">{{ sortConfig.direction === 'asc' ? '▲' : '▼' }}</span></th>
+                                <th @click="sortBy('low_mod')" class="sortable">Adj Low <span v-show="sortConfig.key === 'low_mod'">{{ sortConfig.direction === 'asc' ? '▲' : '▼' }}</span></th>
+                                <th @click="sortBy('high_mod')" class="sortable">Adj High <span v-show="sortConfig.key === 'high_mod'">{{ sortConfig.direction === 'asc' ? '▲' : '▼' }}</span></th>
+                                <th @click="sortBy('high')" class="sortable">High <span v-show="sortConfig.key === 'high'">{{ sortConfig.direction === 'asc' ? '▲' : '▼' }}</span></th>
+                                <th @click="sortBy('roi')" class="sortable">ROI <span v-show="sortConfig.key === 'roi'">{{ sortConfig.direction === 'asc' ? '▲' : '▼' }}</span></th>
+                                <th @click="sortBy('buy_limit')" class="sortable">Limit <span v-show="sortConfig.key === 'buy_limit'">{{ sortConfig.direction === 'asc' ? '▲' : '▼' }}</span></th>
+                                <th @click="sortBy('volume')" class="sortable">Vol (hr) <span v-show="sortConfig.key === 'volume'">{{ sortConfig.direction === 'asc' ? '▲' : '▼' }}</span></th>
                                 <th>Price Trend</th>
                                 <th>Vol Spike</th>
-                                <th title="Manually record a successful flip or failed buy to improve this item's future ranking score">Actions ℹ️</th>
+                                <th title="Manually record a successful flip or failed sell to improve this item's future ranking score">Actions ℹ️</th>
                             </tr>
                         </thead>
                         <tbody>
-                            <tr v-for="(item, index) in items" :key="item.item_id" :class="{'is-sink': item.is_sink}">
+                            <tr v-for="(item, index) in sortedItems" :key="item.item_id" :class="{'is-sink': item.is_sink}">
                                 <td>#{{ index + 1 }}</td>
                                 <td class="item-name">
                                     <a :href="getWikiLink(item.name)" target="_blank">
@@ -113,6 +114,7 @@
                                 <td class="score">{{ Math.round(item.score) }}</td>
                                 <td :class="['profit', 'positive', getGoldColorClass(item.potential_profit)]">{{ formatNumber(item.potential_profit) }}</td>
                                 <td :class="['profit', getGoldColorClass(item.profit_per_item)]">{{ formatNumber(item.profit_per_item) }}</td>
+                                <td :class="['capital', getGoldColorClass(item.capital_required)]">{{ formatNumber(item.capital_required) }}</td>
                                 <td :class="['spread', getGoldColorClass(item.low)]">{{ formatNumber(item.low) }}</td>
                                 <td :class="['spread', getGoldColorClass(item.low_mod)]">{{ formatNumber(item.low_mod) }}</td>
                                 <td :class="['spread', getGoldColorClass(item.high_mod)]">{{ formatNumber(item.high_mod) }}</td>
@@ -128,7 +130,7 @@
                                 </td>
                                 <td class="actions">
                                     <button @click="recordFlip(item)" class="btn-action success" title="Record Successful Flip">💰</button>
-                                    <button @click="recordFailedBuy(item)" class="btn-action danger" title="Record Failed Buy">❌</button>
+                                    <button @click="recordFailedBuy(item)" class="btn-action danger" title="Record Failed Sell">❌</button>
                                 </td>
                             </tr>
                         </tbody>
@@ -168,8 +170,8 @@
                 </div>
 
                 <div class="glass-panel form-panel">
-                    <h2>Record Failed Buy</h2>
-                    <p class="text-muted">Log a failed buy attempt to severely penalize this item's ranking score.</p>
+                    <h2>Record Failed Sell</h2>
+                    <p class="text-muted">Log a failed sell attempt to severely penalize this item's ranking score.</p>
                     <form @submit.prevent="submitManualFailedBuy">
                         <div class="form-group">
                             <label>Item Name</label>
@@ -220,7 +222,7 @@
                     </div>
 
                     <div class="glass-panel">
-                        <h3>Recent Failed Buys</h3>
+                        <h3>Recent Failed Sells</h3>
                         <div class="table-container">
                             <table class="data-table small">
                                 <thead>
@@ -231,13 +233,13 @@
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    <tr v-for="fail in failedBuysHistory" :key="fail.timestamp">
+                                    <tr v-for="fail in failedSellsHistory" :key="fail.timestamp">
                                         <td>{{ formatDate(fail.timestamp) }}</td>
                                         <td>{{ fail.item_name || fail.item_id }}</td>
                                         <td class="text-muted">{{ fail.notes || '-' }}</td>
                                     </tr>
-                                    <tr v-if="failedBuysHistory.length === 0">
-                                        <td colspan="3" class="text-muted text-center">No failed buys recorded.</td>
+                                    <tr v-if="failedSellsHistory.length === 0">
+                                        <td colspan="3" class="text-muted text-center">No failed sells recorded.</td>
                                     </tr>
                                 </tbody>
                             </table>
@@ -249,41 +251,106 @@
             <!-- TAB: SETTINGS -->
             <div v-show="currentTab === 'settings'" class="settings-grid">
                 <div class="glass-panel form-panel">
-                    <h2>Data Synchronization</h2>
-                    <p class="text-muted">Manually trigger data pipelines from the OSRS Wiki APIs.</p>
+                    <h2>Export & Import Profile</h2>
+                    <p class="text-muted">Export your local config and historical data (flips, failed sells) to move to another device.</p>
                     <div class="action-list">
-                        <button class="btn btn-primary" @click="syncPrices" :disabled="loading">
-                            Sync Latest Prices & Volumes
+                        <button class="btn btn-primary" @click="exportUserFile">
+                            Export Profile (.json)
                         </button>
-                        <p class="text-sm">Fetches the newest 5m prices, 1h volumes, and historical time-series data for algorithms.</p>
+                        <p class="text-sm">Downloads your profile data from localStorage.</p>
                         <br>
-                        <button class="btn" @click="syncMetadata" :disabled="loading">
-                            Sync Item Metadata
-                        </button>
-                        <p class="text-sm">Fetches static mappings, buy limits, and high alch values.</p>
+                        <div class="file-upload-wrapper">
+                            <input type="file" ref="profileFileInput" accept=".json" class="file-input" @change="importUserFile">
+                            <button class="btn" @click="$refs.profileFileInput.click()" :disabled="loading">
+                                Import Profile
+                            </button>
+                        </div>
                     </div>
                 </div>
 
-                <div class="glass-panel form-panel">
-                    <h2>Backup & Restore</h2>
-                    <p class="text-muted">Export or import your persistent database (flips, failures, prices, items) via JSON.</p>
-                    <div class="action-list">
-                        <a href="/api/backup" target="_blank" class="btn btn-primary" style="display:inline-block; text-decoration:none; text-align:center;">
-                            Download Full Backup (.json)
-                        </a>
-                        <p class="text-sm">Serializes all on-disk files into a single downloadable artifact.</p>
-                        <br>
-                        <div class="file-upload-wrapper">
-                            <input type="file" ref="backupFileInput" accept=".json" class="file-input" @change="handleFileUpload">
-                            <button class="btn" @click="$refs.backupFileInput.click()" :disabled="loading">
-                                Select Backup File to Restore
-                            </button>
-                            <span v-if="selectedFile" class="file-name">{{ selectedFile.name }}</span>
+                <div class="glass-panel form-panel" v-if="localConfig">
+                    <h2>Algorithm Configuration</h2>
+                    <p class="text-muted">Customize the constants used in the scoring algorithm. These are saved in your browser.</p>
+                    
+                    <button class="btn btn-danger" @click="resetToDefaults" style="margin-bottom: 20px;">Load System Defaults</button>
+
+                    <form @submit.prevent="fetchReport">
+                        <div class="config-section">
+                            <h3>Taxation</h3>
+                            <div class="form-group">
+                                <label>Tax Rate (e.g., 0.02 for 2%)</label>
+                                <input type="number" step="0.001" v-model.number="localConfig.tax_rate">
+                            </div>
+                            <div class="form-group">
+                                <label>Tax Cap (e.g., 5000000)</label>
+                                <input type="number" v-model.number="localConfig.tax_cap">
+                            </div>
                         </div>
-                        <button v-if="selectedFile" class="btn btn-danger mt-2" @click="restoreBackup" :disabled="loading">
-                            Upload and Overwrite Database
-                        </button>
-                    </div>
+
+                        <div class="config-section">
+                            <h3>Flips Modifiers</h3>
+                            <p class="text-sm">Values added to the base 1.0 multiplier.</p>
+                            <div class="form-group">
+                                <label>Half Life (Hours)</label>
+                                <input type="number" v-model.number="localConfig.flip_half_life_hours">
+                            </div>
+                            <div class="form-group">
+                                <label>Modifier: Meh</label>
+                                <input type="number" step="0.01" v-model.number="localConfig.flip_modifier_meh">
+                            </div>
+                            <div class="form-group">
+                                <label>Modifier: Mid</label>
+                                <input type="number" step="0.01" v-model.number="localConfig.flip_modifier_mid">
+                            </div>
+                            <div class="form-group">
+                                <label>Modifier: Good</label>
+                                <input type="number" step="0.01" v-model.number="localConfig.flip_modifier_good">
+                            </div>
+                            <div class="form-group">
+                                <label>Modifier: Great</label>
+                                <input type="number" step="0.01" v-model.number="localConfig.flip_modifier_great">
+                            </div>
+                        </div>
+
+                        <div class="config-section">
+                            <h3>Failed Sells Modifiers</h3>
+                            <p class="text-sm">Values subtracted from the multiplier.</p>
+                            <div class="form-group">
+                                <label>Half Life (Hours)</label>
+                                <input type="number" v-model.number="localConfig.failed_sell_half_life_hours">
+                            </div>
+                            <div class="form-group">
+                                <label>Penalty</label>
+                                <input type="number" step="0.01" v-model.number="localConfig.failed_sell_penalty">
+                            </div>
+                        </div>
+
+                        <div class="config-section">
+                            <h3>Base Score & Trend Penalties</h3>
+                            <div class="form-group">
+                                <label>1h Trend Penalty</label>
+                                <input type="number" step="0.01" v-model.number="localConfig.price_trend_penalty_1h">
+                            </div>
+                            <div class="form-group">
+                                <label>24h Trend Penalty</label>
+                                <input type="number" step="0.01" v-model.number="localConfig.price_trend_penalty_24h">
+                            </div>
+                            <div class="form-group">
+                                <label>30d Trend Penalty</label>
+                                <input type="number" step="0.01" v-model.number="localConfig.price_trend_penalty_30d">
+                            </div>
+                            <div class="form-group">
+                                <label>Volume Spike 5m Reward</label>
+                                <input type="number" step="0.01" v-model.number="localConfig.volume_spike_5m_multiplier">
+                            </div>
+                            <div class="form-group">
+                                <label>Volume Spike 24h Reward</label>
+                                <input type="number" step="0.01" v-model.number="localConfig.volume_spike_24h_multiplier">
+                            </div>
+                        </div>
+
+                        <button type="submit" class="btn btn-primary mt-2" :disabled="loading">Save & Refresh Report</button>
+                    </form>
                 </div>
             </div>
         </div>
@@ -314,9 +381,9 @@
                 </form>
             </div>
 
-            <!-- Record Failed Buy Modal -->
+            <!-- Record Failed Sell Modal -->
             <div class="modal glass-panel" v-if="showFailedModal">
-                <h2>Record Failed Buy for {{ selectedItem?.name }}</h2>
+                <h2>Record Failed Sell for {{ selectedItem?.name }}</h2>
                 <form @submit.prevent="submitFailedBuy">
                     <div class="form-group">
                         <label>Notes (Optional)</label>
