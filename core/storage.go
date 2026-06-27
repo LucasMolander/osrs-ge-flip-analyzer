@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"cloud.google.com/go/storage"
 	"google.golang.org/api/googleapi"
@@ -190,10 +191,8 @@ func (g *GCSStorage) WriteRaw(path string, content []byte) error {
 	return nil
 }
 
-// FindLatestFile finds the latest JSON object matching prefix inside bucket/dir.
-func (g *GCSStorage) FindLatestFile(dir, prefix string) (string, int64, error) {
+func (g *GCSStorage) searchPrefixLatest(queryPrefix string) (string, int64, error) {
 	ctx := context.Background()
-	queryPrefix := fmt.Sprintf("%s/%s_", dir, prefix)
 	it := g.client.Bucket(g.bucketName).Objects(ctx, &storage.Query{Prefix: queryPrefix})
 
 	var latestPath string
@@ -224,6 +223,28 @@ func (g *GCSStorage) FindLatestFile(dir, prefix string) (string, int64, error) {
 	}
 
 	return latestPath, latestTime, nil
+}
+
+// FindLatestFile searches the past 7 days of yyyy/mm/dd directories in GCS, falling back to legacy root.
+func (g *GCSStorage) FindLatestFile(dir, prefix string) (string, int64, error) {
+	now := time.Now().UTC()
+	for i := 0; i < 7; i++ {
+		t := now.AddDate(0, 0, -i)
+		queryPrefix := fmt.Sprintf("%s/%04d/%02d/%02d/%s_", dir, t.Year(), int(t.Month()), t.Day(), prefix)
+		path, ts, err := g.searchPrefixLatest(queryPrefix)
+		if err == nil {
+			return path, ts, nil
+		}
+	}
+	
+	// Fallback to legacy root directory
+	queryPrefix := fmt.Sprintf("%s/%s_", dir, prefix)
+	path, ts, err := g.searchPrefixLatest(queryPrefix)
+	if err == nil {
+		return path, ts, nil
+	}
+	
+	return "", 0, fmt.Errorf("no GCS objects found matching %s in date dirs or legacy %s", prefix, queryPrefix)
 }
 
 // ListDir lists all objects in GCS with the given directory prefix.

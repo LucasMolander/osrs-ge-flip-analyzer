@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>System Profiling - OSRS GE Flip Analyzer</title>
+    <!-- Use Vue 3 via CDN for quick integration -->
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --surface-color: #1e293b;
+            --text-color: #e2e8f0;
+            --accent-color: #0ea5e9;
+            --terminal-green: #22c55e;
+            --border-color: #334155;
+            --font-mono: 'Courier New', Courier, monospace;
+        }
+
+        body {
+            font-family: var(--font-mono);
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 0;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        header {
+            border-bottom: 2px solid var(--accent-color);
+            padding-bottom: 1rem;
+            margin-bottom: 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+        }
+
+        header h1 {
+            margin: 0;
+            color: var(--accent-color);
+            font-size: 1.5rem;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+        
+        header a {
+            color: var(--text-color);
+            text-decoration: none;
+            font-size: 0.9rem;
+            border: 1px solid var(--border-color);
+            padding: 0.3rem 0.6rem;
+            border-radius: 4px;
+            transition: all 0.2s;
+        }
+        
+        header a:hover {
+            background-color: var(--surface-color);
+            border-color: var(--accent-color);
+        }
+
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 2rem;
+        }
+
+        @media (max-width: 768px) {
+            .dashboard-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .panel {
+            background-color: var(--surface-color);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 1.5rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+
+        .panel h2 {
+            margin-top: 0;
+            font-size: 1.1rem;
+            border-bottom: 1px dashed var(--border-color);
+            padding-bottom: 0.5rem;
+            color: var(--terminal-green);
+            text-transform: uppercase;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+            margin-top: 1rem;
+        }
+
+        th, td {
+            text-align: left;
+            padding: 0.75rem 0.5rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        th {
+            color: #94a3b8;
+            font-weight: normal;
+        }
+
+        td.numeric {
+            text-align: right;
+            color: var(--accent-color);
+        }
+
+        .refresh-btn {
+            background-color: transparent;
+            color: var(--terminal-green);
+            border: 1px solid var(--terminal-green);
+            padding: 0.4rem 0.8rem;
+            font-family: inherit;
+            cursor: pointer;
+            border-radius: 4px;
+            float: right;
+            margin-top: -3rem;
+            transition: all 0.2s;
+        }
+
+        .refresh-btn:hover {
+            background-color: rgba(34, 197, 94, 0.1);
+        }
+        
+        .refresh-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .pprof-links {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        .pprof-links li {
+            margin-bottom: 0.75rem;
+        }
+
+        .pprof-links a {
+            display: block;
+            color: var(--text-color);
+            text-decoration: none;
+            padding: 0.75rem;
+            background-color: rgba(0,0,0,0.2);
+            border: 1px solid var(--border-color);
+            border-left: 4px solid var(--accent-color);
+            border-radius: 4px;
+            transition: all 0.2s;
+        }
+
+        .pprof-links a:hover {
+            background-color: rgba(14, 165, 233, 0.1);
+            border-color: var(--accent-color);
+        }
+
+        .pprof-links span {
+            display: block;
+            font-size: 0.75rem;
+            color: #94a3b8;
+            margin-top: 0.25rem;
+        }
+        
+        .login-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-color: var(--bg-color);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        
+        .login-box {
+            background-color: var(--surface-color);
+            padding: 2rem;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            width: 100%;
+            max-width: 350px;
+        }
+        
+        .login-box h2 {
+            margin-top: 0;
+            color: var(--accent-color);
+        }
+        
+        .login-box input {
+            width: 100%;
+            padding: 0.75rem;
+            margin-bottom: 1rem;
+            background-color: rgba(0,0,0,0.2);
+            border: 1px solid var(--border-color);
+            color: white;
+            font-family: inherit;
+            box-sizing: border-box;
+            border-radius: 4px;
+        }
+        
+        .login-box button {
+            width: 100%;
+            padding: 0.75rem;
+            background-color: var(--accent-color);
+            color: #fff;
+            border: none;
+            cursor: pointer;
+            font-family: inherit;
+            font-weight: bold;
+            border-radius: 4px;
+        }
+        
+        .error-msg {
+            color: #ef4444;
+            margin-bottom: 1rem;
+            font-size: 0.85rem;
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <!-- Login Screen -->
+        <div v-if="!isAuthenticated" class="login-overlay">
+            <div class="login-box">
+                <h2>System Authentication</h2>
+                <p style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 1.5rem;">Access requires administrative credentials.</p>
+                <div v-if="loginError" class="error-msg">{{ loginError }}</div>
+                <input type="text" v-model="username" placeholder="Username" @keyup.enter="login">
+                <input type="password" v-model="password" placeholder="Password" @keyup.enter="login">
+                <button @click="login">Authenticate</button>
+            </div>
+        </div>
+        
+        <div class="container" v-if="isAuthenticated">
+            <header>
+                <h1>system_profiling::metrics</h1>
+                <a href="/">← Return to Main App</a>
+            </header>
+
+            <div class="dashboard-grid">
+                <!-- Custom Application Telemetry -->
+                <div class="panel">
+                    <h2>Application Telemetry</h2>
+                    <button class="refresh-btn" @click="fetchMetrics" :disabled="loading">
+                        <span v-if="loading">[ Fetching... ]</span>
+                        <span v-else>[ Refresh ]</span>
+                    </button>
+                    
+                    <p style="font-size: 0.8rem; color: #94a3b8; margin-top: 0.5rem; margin-bottom: 0;">
+                        Custom tracing of critical execution paths in the core analysis pipeline.
+                    </p>
+
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Phase (Path)</th>
+                                <th class="numeric">Calls</th>
+                                <th class="numeric">Avg Time (ms)</th>
+                                <th class="numeric">Last Time (ms)</th>
+                                <th class="numeric">Total Time (ms)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr v-if="Object.keys(metrics).length === 0">
+                                <td colspan="5" style="text-align: center; color: #64748b; padding: 2rem 0;">No metrics gathered yet. Run an analysis first.</td>
+                            </tr>
+                            <tr v-for="(stats, phase) in metrics" :key="phase">
+                                <td><strong>{{ phase }}</strong></td>
+                                <td class="numeric">{{ stats.count }}</td>
+                                <td class="numeric">{{ stats.average_time_ms.toFixed(2) }}</td>
+                                <td class="numeric">{{ stats.last_time_ms.toFixed(2) }}</td>
+                                <td class="numeric">{{ stats.total_time_ms.toFixed(2) }}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Standard pprof Links -->
+                <div class="panel">
+                    <h2>Go pprof Endpoints</h2>
+                    <p style="font-size: 0.8rem; color: #94a3b8; margin-top: 0.5rem; margin-bottom: 1.5rem;">
+                        Standard runtime profiling provided by net/http/pprof. Note: Viewing these requires local authentication or `go tool pprof`.
+                    </p>
+                    
+                    <ul class="pprof-links">
+                        <li>
+                            <a :href="pprofAuthUrl('/debug/pprof/')" target="_blank">
+                                <strong>/debug/pprof/</strong>
+                                <span>Main pprof HTML Index</span>
+                            </a>
+                        </li>
+                        <li>
+                            <a :href="speedscopeWrapperUrl('/debug/pprof/profile?seconds=5')" target="_blank" style="border-left-color: #f59e0b;">
+                                <strong>🔥 Interactive CPU Flamegraph (5s)</strong>
+                                <span>Open CPU profile in Speedscope</span>
+                            </a>
+                        </li>
+                        <li>
+                            <a :href="pprofAuthUrl('/debug/pprof/profile?seconds=5')" target="_blank">
+                                <strong>/debug/pprof/profile (5s)</strong>
+                                <span>Download raw 5s CPU profile (for go tool pprof)</span>
+                            </a>
+                        </li>
+                        <li>
+                            <a :href="speedscopeWrapperUrl('/debug/pprof/heap')" target="_blank" style="border-left-color: #f59e0b;">
+                                <strong>🔥 Interactive Heap Flamegraph</strong>
+                                <span>Open Heap profile in Speedscope</span>
+                            </a>
+                        </li>
+                        <li>
+                            <a :href="pprofAuthUrl('/debug/pprof/heap')" target="_blank">
+                                <strong>/debug/pprof/heap</strong>
+                                <span>Download raw heap allocation profile</span>
+                            </a>
+                        </li>
+                        <li>
+                            <a :href="speedscopeWrapperUrl('/debug/pprof/goroutine')" target="_blank" style="border-left-color: #f59e0b;">
+                                <strong>🔥 Interactive Goroutine Flamegraph</strong>
+                                <span>Open Goroutine profile in Speedscope</span>
+                            </a>
+                        </li>
+                        <li>
+                            <a :href="pprofAuthUrl('/debug/pprof/goroutine?debug=1')" target="_blank">
+                                <strong>/debug/pprof/goroutine?debug=1</strong>
+                                <span>View raw text stack traces of all current goroutines</span>
+                            </a>
+                        </li>
+                        <li>
+                            <a :href="pprofAuthUrl('/debug/pprof/trace?seconds=5')" target="_blank">
+                                <strong>/debug/pprof/trace (5s)</strong>
+                                <span>Download execution trace (for go tool trace)</span>
+                            </a>
+                        </li>
+                        <li>
+                            <a :href="speedscopeWrapperUrl('/debug/pprof/block')" target="_blank" style="border-left-color: #f59e0b;">
+                                <strong>🔥 Interactive Block Flamegraph</strong>
+                                <span>Open Block profile in Speedscope</span>
+                            </a>
+                        </li>
+                        <li>
+                            <a :href="speedscopeWrapperUrl('/debug/pprof/mutex')" target="_blank" style="border-left-color: #f59e0b;">
+                                <strong>🔥 Interactive Mutex Flamegraph</strong>
+                                <span>Open Mutex profile in Speedscope</span>
+                            </a>
+                        </li>
+                    </ul>
+                </div>
+
+                <!-- HTML/RPC Tracing (x/net/trace) -->
+                <div class="panel" style="grid-column: 1 / -1;">
+                    <h2>System & RPC Tracing (x/net/trace)</h2>
+                    <p style="font-size: 0.8rem; color: #94a3b8; margin-top: 0.5rem; margin-bottom: 1.5rem;">
+                        Granular HTML-based visibility into active network requests, long-running processes, and internal system events.
+                    </p>
+                    
+                    <ul class="pprof-links" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem;">
+                        <li>
+                            <a :href="pprofAuthUrl('/debug/requests')" target="_blank" style="border-left-color: #22c55e;">
+                                <strong>🌐 Active & Completed RPCs</strong>
+                                <span>View /debug/requests</span>
+                            </a>
+                        </li>
+                        <li>
+                            <a :href="pprofAuthUrl('/debug/events')" target="_blank" style="border-left-color: #22c55e;">
+                                <strong>📊 System Events</strong>
+                                <span>View /debug/events</span>
+                            </a>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const { createApp, ref, onMounted } = Vue
+
+        createApp({
+            setup() {
+                const isAuthenticated = ref(false)
+                const username = ref('')
+                const password = ref('')
+                const loginError = ref('')
+                const authHeader = ref('')
+                
+                const metrics = ref({})
+                const loading = ref(false)
+                
+                // Helper to construct URLs with embedded basic auth for standard links
+                const pprofAuthUrl = (path) => {
+                    const protocol = window.location.protocol;
+                    const host = window.location.host;
+                    return `${protocol}//${encodeURIComponent(username.value)}:${encodeURIComponent(password.value)}@${host}${path}`;
+                }
+                
+                // Helper to bypass fetch credential issues for Speedscope
+                const speedscopeWrapperUrl = (path) => {
+                    const auth = btoa(username.value + ":" + password.value);
+                    return `/speedscope-wrapper.html?target=${encodeURIComponent(path)}&auth=${encodeURIComponent(auth)}`;
+                };
+
+                const checkAuth = () => {
+                    const savedAuth = localStorage.getItem('ge_auth')
+                    if (savedAuth) {
+                        authHeader.value = savedAuth
+                        
+                        // Also try to restore username/password for pprof links
+                        const decoded = atob(savedAuth.replace('Basic ', ''))
+                        const parts = decoded.split(':')
+                        if(parts.length >= 2) {
+                            username.value = parts[0]
+                            password.value = parts.slice(1).join(':')
+                        }
+                        
+                        isAuthenticated.value = true
+                        fetchMetrics()
+                    }
+                }
+
+                const login = async () => {
+                    if (!username.value || !password.value) {
+                        loginError.value = "Please enter both username and password."
+                        return
+                    }
+                    
+                    const token = btoa(`${username.value}:${password.value}`)
+                    const header = `Basic ${token}`
+                    
+                    try {
+                        const response = await fetch('/api/profiling/metrics', {
+                            headers: { 'Authorization': header }
+                        })
+                        
+                        if (response.status === 401) {
+                            loginError.value = "Invalid username or password."
+                        } else if (response.ok) {
+                            localStorage.setItem('ge_auth', header)
+                            authHeader.value = header
+                            isAuthenticated.value = true
+                            loginError.value = ""
+                            metrics.value = await response.json()
+                        } else {
+                            loginError.value = "Server error occurred."
+                        }
+                    } catch (e) {
+                        loginError.value = "Network error occurred."
+                    }
+                }
+                
+                const fetchWithAuth = async (url, options = {}) => {
+                    options.headers = {
+                        ...options.headers,
+                        'Authorization': authHeader.value
+                    }
+                    const res = await fetch(url, options)
+                    if (res.status === 401) {
+                        localStorage.removeItem('ge_auth')
+                        isAuthenticated.value = false
+                        throw new Error("unauthorized")
+                    }
+                    if (!res.ok) {
+                        const data = await res.json()
+                        throw new Error(data.error || "Request failed")
+                    }
+                    return res.json()
+                }
+
+                const fetchMetrics = async () => {
+                    loading.value = true
+                    try {
+                        metrics.value = await fetchWithAuth('/api/profiling/metrics')
+                    } catch (err) {
+                        if (err.message !== "unauthorized") {
+                            console.error("Failed to fetch metrics:", err)
+                        }
+                    } finally {
+                        loading.value = false
+                    }
+                }
+
+                onMounted(() => {
+                    checkAuth()
+                })
+
+                return {
+                    isAuthenticated,
+                    username,
+                    password,
+                    loginError,
+                    login,
+                    metrics,
+                    loading,
+                    fetchMetrics,
+                    pprofAuthUrl,
+                    speedscopeWrapperUrl
+                }
+            }
+        }).mount('#app')
+    </script>
+</body>
+</html>

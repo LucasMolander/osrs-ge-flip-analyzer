@@ -52,3 +52,5 @@ parsed*.json
 *.tfvars
 gcp/env_metadata.sh
 gcp/webapp_creds
+gcp/migrate_gcs_folders.py
+gcp/migrate_gcs_folders.sh

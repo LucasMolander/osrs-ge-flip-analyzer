@@ -60,14 +60,19 @@ func (app *AppServer) apiSyncPricesHandler(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	timestamp := time.Now().Unix()
-	if err := core.DownloadPrices(app.Client, timestamp); err != nil {
+	runTs := time.Now().Unix()
+	fetched, err := core.DownloadPrices(r.Context(), app.Client, runTs)
+	if err != nil {
 		sendError(w, err, "Failed to sync prices", http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "success", "message": "Prices synced successfully."})
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status": "success",
+		"message": "Prices synced successfully.",
+		"fetched_new_data": fetched,
+	})
 }
 
 // apiSyncMetadataHandler triggers a download of the latest item metadata
@@ -78,7 +83,7 @@ func (app *AppServer) apiSyncMetadataHandler(w http.ResponseWriter, r *http.Requ
 	}
 
 	timestamp := time.Now().Unix()
-	if _, _, err := core.DownloadMetadata(app.Client, timestamp); err != nil {
+	if _, _, err := core.DownloadMetadata(r.Context(), app.Client, timestamp); err != nil {
 		sendError(w, err, "Failed to sync metadata", http.StatusInternalServerError)
 		return
 	}
@@ -150,4 +155,16 @@ func (app *AppServer) apiConfigDefaultHandler(w http.ResponseWriter, r *http.Req
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(core.DefaultRankingConfig())
+}
+
+// apiProfilingMetricsHandler returns the internal phase profiler's statistics.
+func (app *AppServer) apiProfilingMetricsHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		sendError(w, nil, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	metrics := core.GlobalProfiler.GetMetrics()
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(metrics)
 }

@@ -1,59 +1,65 @@
 package core
 
 import (
+	"context"
 	"fmt"
-	"time"
 	"math"
+	"runtime/pprof"
 	"sync"
+	"time"
 )
 
 func SaveJSON(dir, prefix string, timestamp int64, data interface{}) (string, error) {
-	path := fmt.Sprintf("%s/%s_%d.json", dir, prefix, timestamp)
+	t := time.Unix(timestamp, 0).UTC()
+	// Structure: dir/yyyy/mm/dd/prefix_timestamp.json
+	path := fmt.Sprintf("%s/%04d/%02d/%02d/%s_%d.json", dir, t.Year(), int(t.Month()), t.Day(), prefix, timestamp)
 	return Store.Write(path, data)
 }
 
-func DownloadPrices(client *OSRSClient, timestamp int64) error {
+func DownloadPrices(ctx context.Context, client *OSRSClient, timestamp int64) (bool, error) {
+	defer GlobalProfiler.Stop("DownloadPrices", GlobalProfiler.Start("DownloadPrices"))
+
 	// 0. Check if we already have recent data
 	_, latestTs, err := Store.FindLatestFile("prices", "prices")
 	if err == nil && (timestamp-latestTs) < 60 {
 		fmt.Printf("Data from the past minute (%d) already exists. Skipping download.\n", latestTs)
-		return nil
+		return false, nil
 	}
 
-	prices, err := client.FetchLatestPrices()
+	prices, err := client.FetchLatestPrices(ctx)
 	if err != nil {
-		return fmt.Errorf("fetching latest prices: %w", err)
+		return false, fmt.Errorf("fetching latest prices: %w", err)
 	}
 	_, err = SaveJSON("prices", "prices", timestamp, prices)
 	if err != nil {
-		return fmt.Errorf("saving prices: %w", err)
+		return false, fmt.Errorf("saving prices: %w", err)
 	}
 
-	_, volumes, err := client.FetchHourlyVolumes()
+	_, volumes, err := client.FetchHourlyVolumes(ctx)
 	if err != nil {
-		return fmt.Errorf("fetching hourly volumes: %w", err)
+		return false, fmt.Errorf("fetching hourly volumes: %w", err)
 	}
 	_, err = SaveJSON("prices", "volumes", timestamp, volumes)
 	if err != nil {
-		return fmt.Errorf("saving volumes: %w", err)
+		return false, fmt.Errorf("saving volumes: %w", err)
 	}
 
-	_, volumes5m, err := client.Fetch5mVolumes()
+	_, volumes5m, err := client.Fetch5mVolumes(ctx)
 	if err != nil {
-		return fmt.Errorf("fetching 5m volumes: %w", err)
+		return false, fmt.Errorf("fetching 5m volumes: %w", err)
 	}
 	_, err = SaveJSON("prices", "volumes_5m", timestamp, volumes5m)
 	if err != nil {
-		return fmt.Errorf("saving 5m volumes: %w", err)
+		return false, fmt.Errorf("saving 5m volumes: %w", err)
 	}
 
-	_, volumes24hAvg, err := client.Fetch24hVolumes()
+	_, volumes24hAvg, err := client.Fetch24hVolumes(ctx)
 	if err != nil {
-		return fmt.Errorf("fetching 24h volumes avg: %w", err)
+		return false, fmt.Errorf("fetching 24h volumes avg: %w", err)
 	}
 	_, err = SaveJSON("prices", "volumes_24h_avg", timestamp, volumes24hAvg)
 	if err != nil {
-		return fmt.Errorf("saving 24h volumes avg: %w", err)
+		return false, fmt.Errorf("saving 24h volumes avg: %w", err)
 	}
 
 	// Align timestamp to the hourly boundary (multiples of 3600)
@@ -61,36 +67,37 @@ func DownloadPrices(client *OSRSClient, timestamp int64) error {
 
 	// 1. Fetch 1 hour ago
 	t1h := alignedNow - 3600
-	hist1h, err := client.FetchHistoricalPrices(t1h)
+	hist1h, err := client.FetchHistoricalPrices(ctx, t1h)
 	if err != nil {
-		return fmt.Errorf("fetching historical prices (1h ago): %w", err)
+		return false, fmt.Errorf("fetching historical prices (1h ago): %w", err)
 	}
 	_, err = SaveJSON("prices", "prices_1h", timestamp, hist1h)
 	if err != nil {
-		return fmt.Errorf("saving 1h historical prices: %w", err)
+		return false, fmt.Errorf("saving 1h prices: %w", err)
 	}
 
 	// 2. Fetch 24 hours ago
 	t24h := alignedNow - 86400
-	hist24h, err := client.FetchHistoricalPrices(t24h)
+	hist24h, err := client.FetchHistoricalPrices(ctx, t24h)
 	if err != nil {
-		return fmt.Errorf("fetching historical prices (24h ago): %w", err)
+		return false, fmt.Errorf("fetching historical prices (24h ago): %w", err)
 	}
 	_, err = SaveJSON("prices", "prices_24h", timestamp, hist24h)
 	if err != nil {
-		return fmt.Errorf("saving 24h historical prices: %w", err)
+		return false, fmt.Errorf("saving 24h prices: %w", err)
 	}
 
-	// 3. Fetch 30 days ago
-	t30d := alignedNow - 2592000
-	hist30d, err := client.FetchHistoricalPrices(t30d)
+	// 3. Fetch 30 days ago (for 30d volume spike analysis)
+	t30d := alignedNow - (30 * 86400)
+	hist30d, err := client.FetchHistoricalPrices(ctx, t30d)
 	if err != nil {
-		return fmt.Errorf("fetching historical prices (30d ago): %w", err)
+		return false, fmt.Errorf("fetching historical prices (30d ago): %w", err)
 	}
 	_, err = SaveJSON("prices", "prices_30d", timestamp, hist30d)
 	if err != nil {
-		return fmt.Errorf("saving 30d historical prices: %w", err)
+		return false, fmt.Errorf("saving 30d prices: %w", err)
 	}
+
 	// 4. Fetch 24 continuous 5m ticks for Outlier Math
 	aligned5m := (timestamp / 300) * 300
 	rolling24 := make([]map[string]HourlyVolume, 24)
@@ -104,7 +111,7 @@ func DownloadPrices(client *OSRSClient, timestamp int64) error {
 			defer wg.Done()
 			// i=0 means 5 minutes ago, i=23 means 120 minutes ago (we exclude the current tick)
 			tTick := aligned5m - int64((idx+1)*300)
-			tickData, err := client.FetchHistorical5m(tTick)
+			tickData, err := client.FetchHistorical5m(ctx, tTick)
 			if err != nil {
 				errMu.Lock()
 				rollingErr = err
@@ -117,19 +124,20 @@ func DownloadPrices(client *OSRSClient, timestamp int64) error {
 	wg.Wait()
 
 	if rollingErr != nil {
-		return fmt.Errorf("fetching rolling 5m ticks: %w", rollingErr)
+		return false, fmt.Errorf("fetching rolling 5m ticks: %w", rollingErr)
 	}
 
 	_, err = SaveJSON("prices", "prices_rolling_24", timestamp, rolling24)
 	if err != nil {
-		return fmt.Errorf("saving rolling 24 ticks: %w", err)
+		return false, fmt.Errorf("saving rolling 24 ticks: %w", err)
 	}
 
-	return nil
+	return true, nil
 }
 
-func DownloadMetadata(client *OSRSClient, timestamp int64) (map[int]ItemMetadata, string, error) {
-	items, err := client.FetchItemMapping()
+func DownloadMetadata(ctx context.Context, client *OSRSClient, timestamp int64) (map[int]ItemMetadata, string, error) {
+	defer GlobalProfiler.Stop("DownloadMetadata", GlobalProfiler.Start("DownloadMetadata"))
+	items, err := client.FetchItemMapping(ctx)
 	if err != nil {
 		return nil, "", fmt.Errorf("fetching item mapping: %w", err)
 	}
@@ -148,13 +156,14 @@ func DownloadMetadata(client *OSRSClient, timestamp int64) (map[int]ItemMetadata
 }
 
 // RunAnalysis orchestrates the fetching of prices, parsing, scoring, and report generation.
-func RunAnalysis(client *OSRSClient, capital, vol int64, limit int, forceDownload bool, filterName string, config *RankingConfig, flips []FlipRecord, failedSells []FailedSellRecord) ([]ReportItem, error) {
+func RunAnalysis(ctx context.Context, client *OSRSClient, capital, vol int64, limit int, forceDownload bool, filterName string, config *RankingConfig, flips []FlipRecord, failedSells []FailedSellRecord) ([]ReportItem, error) {
+	defer GlobalProfiler.Stop("RunAnalysis", GlobalProfiler.Start("RunAnalysis"))
 	runTs := time.Now().Unix()
 
 	// 1. Download unless skipped
 	if forceDownload {
 		fmt.Println("Downloading latest price and volume data...")
-		if err := DownloadPrices(client, runTs); err != nil {
+		if _, err := DownloadPrices(ctx, client, runTs); err != nil {
 			return nil, fmt.Errorf("error downloading prices: %w", err)
 		}
 	} else {
@@ -164,13 +173,14 @@ func RunAnalysis(client *OSRSClient, capital, vol int64, limit int, forceDownloa
 		_, _, err2 := Store.FindLatestFile("prices", "prices_rolling_24")
 		if err1 != nil || err2 != nil {
 			fmt.Println("Missing required cached prices (like rolling_24). Fetching them now as fallback...")
-			if err := DownloadPrices(client, runTs); err != nil {
+			if _, err := DownloadPrices(ctx, client, runTs); err != nil {
 				return nil, fmt.Errorf("error downloading prices during fallback: %w", err)
 			}
 		}
 	}
 
 	// 2. Locate latest price and volume files
+	tFind := GlobalProfiler.Start("Storage_FindLatestFile")
 	pricesPath, _, err := Store.FindLatestFile("prices", "prices")
 	if err != nil {
 		return nil, fmt.Errorf("error locating latest prices file: %w", err)
@@ -203,13 +213,15 @@ func RunAnalysis(client *OSRSClient, capital, vol int64, limit int, forceDownloa
 	if err != nil {
 		return nil, fmt.Errorf("error locating latest rolling 24 prices file: %w", err)
 	}
+	GlobalProfiler.Stop("Storage_FindLatestFile", tFind)
 
 	// 3. Locate or fetch latest metadata file
+	tLoad := GlobalProfiler.Start("Storage_LoadJSONs")
 	var metadata map[int]ItemMetadata
 	metadataPath, _, err := Store.FindLatestFile("item_data", "item_metadata")
 	if err != nil {
 		fmt.Println("No cached item metadata found. Fetching it now...")
-		metadata, metadataPath, err = DownloadMetadata(client, runTs)
+		metadata, metadataPath, err = DownloadMetadata(ctx, client, runTs)
 		if err != nil {
 			return nil, fmt.Errorf("error fetching item metadata: %w", err)
 		}
@@ -262,12 +274,22 @@ func RunAnalysis(client *OSRSClient, capital, vol int64, limit int, forceDownloa
 	if err := LoadJSON(pricesRollingPath, &rolling24); err != nil {
 		return nil, fmt.Errorf("error loading rolling 24 prices from %s: %w", pricesRollingPath, err)
 	}
+	GlobalProfiler.Stop("Storage_LoadJSONs", tLoad)
 
 	// 5. Load historical nudges (calculated beforehand and passed in)
-	nudges := CalculateNudges(config, flips, failedSells)
+	nudges := CalculateNudges(ctx, config, flips, failedSells)
 
 	// 6. Run analysis
-	reportItems := AnalyzePrices(prices, volumes, metadata, nudges, hist1h, hist24h, hist30d, vol5m, vol24h, filterName, config, rolling24)
+	tAnalyze := GlobalProfiler.Start("AnalyzePrices")
+	var reportItems []ReportItem
+	pprof.Do(ctx, pprof.Labels("phase", "RunAnalysis", "subphase", "AnalyzePrices"), func(ctx context.Context) {
+		reportItems = AnalyzePrices(
+			ctx,
+			runTs,
+			prices,
+			volumes, metadata, nudges, hist1h, hist24h, hist30d, vol5m, vol24h, filterName, config, rolling24)
+	})
+	GlobalProfiler.Stop("AnalyzePrices", tAnalyze)
 
 	// 7. Save reports
 	_, err = SaveJSON("reports", "report", runTs, reportItems)
@@ -288,7 +310,7 @@ func LoadJSON(path string, target interface{}) error {
 	return Store.Read(path, target)
 }
 
-func CalculateNudges(config *RankingConfig, flips []FlipRecord, failedSells []FailedSellRecord) map[int]float64 {
+func CalculateNudges(ctx context.Context, config *RankingConfig, flips []FlipRecord, failedSells []FailedSellRecord) map[int]float64 {
 	nudges := make(map[int]float64)
 	netNudges := make(map[int]float64)
 

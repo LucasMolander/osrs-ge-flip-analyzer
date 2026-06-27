@@ -70,6 +70,7 @@ type ReportRequest struct {
 type ReportItem struct {
 	ID              int     `json:"id"`
 	Name            string  `json:"name"`
+	Icon            string  `json:"icon"`
 	BuyLimit        int     `json:"buy_limit"`
 	High            int64   `json:"high"`
 	Low             int64   `json:"low"`

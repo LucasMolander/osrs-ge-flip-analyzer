@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"os"
@@ -9,8 +10,8 @@ import (
 	"time"
 )
 
-// FindLatestFile scans a directory and returns the path and timestamp of the latest file matching the prefix.
-func FindLatestFile(dir, prefix string) (string, int64, error) {
+// searchPrefixLatest scans a directory and returns the path and timestamp of the latest file matching the prefix.
+func searchPrefixLatest(dir, prefix string) (string, int64, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return "", 0, fmt.Errorf("failed to read directory %s: %w", dir, err)
@@ -41,6 +42,27 @@ func FindLatestFile(dir, prefix string) (string, int64, error) {
 	}
 
 	return latestPath, latestTime, nil
+}
+
+// FindLatestFile searches the past 7 days of yyyy/mm/dd directories, falling back to the legacy root.
+func FindLatestFile(dir, prefix string) (string, int64, error) {
+	now := time.Now().UTC()
+	for i := 0; i < 7; i++ {
+		t := now.AddDate(0, 0, -i)
+		dateDir := fmt.Sprintf("%s/%04d/%02d/%02d", dir, t.Year(), int(t.Month()), t.Day())
+		path, ts, err := searchPrefixLatest(dateDir, prefix)
+		if err == nil {
+			return path, ts, nil
+		}
+	}
+
+	// Fallback to legacy root directory
+	path, ts, err := searchPrefixLatest(dir, prefix)
+	if err == nil {
+		return path, ts, nil
+	}
+
+	return "", 0, fmt.Errorf("no files found matching %s in date dirs or legacy %s", prefix, dir)
 }
 
 // formatCommas formats an integer with thousands-separator commas.
@@ -192,6 +214,8 @@ func calculateSpreadJitterAndSpike(highs, lows []float64, currentSpread float64)
 
 // AnalyzePrices runs the analysis algorithm and returns a sorted slice of ReportItems.
 func AnalyzePrices(
+	ctx context.Context,
+	runTs int64,
 	prices map[string]LatestPrice,
 	volumes map[string]HourlyVolume,
 	metadata map[int]ItemMetadata,
@@ -514,6 +538,13 @@ func AnalyzePrices(
 
 		trendMultiplier *= outlierTrendMultiplier
 
+		// Stale Price Penalty
+		thresholdSeconds := int64(config.StalePriceThresholdMinutes * 60)
+		if price.HighTime == nil || price.LowTime == nil || (runTs-*price.HighTime) > thresholdSeconds || (runTs-*price.LowTime) > thresholdSeconds {
+			trendMultiplier *= config.StalePricePenaltyMultiplier
+			priceTrendIndicators = append(priceTrendIndicators, "STALE")
+		}
+
 		// Final Score Calculation
 		// Base * ProfitMultiplier * ROI * Volume * Nudges * Trend * Spikes
 		score := float64(potentialProfit)
@@ -528,6 +559,7 @@ func AnalyzePrices(
 		items = append(items, ReportItem{
 			ID:              item.ID,
 			Name:            item.Name,
+			Icon:            item.Icon,
 			BuyLimit:        item.Limit,
 			High:            high,
 			Low:             low,

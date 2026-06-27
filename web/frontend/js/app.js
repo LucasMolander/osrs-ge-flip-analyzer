@@ -116,6 +116,7 @@ createApp({
         // Sorting state
         const sortConfig = ref({ key: null, direction: 'default' })
 
+
         const sortBy = (key) => {
             if (sortConfig.value.key === key) {
                 if (sortConfig.value.direction === 'asc') {
@@ -246,15 +247,23 @@ createApp({
             return sign + absN.toString();
         }
 
+        const formatProfit = (num) => {
+            if (num === undefined || num === null) return '';
+            const absN = Math.abs(num);
+            const sign = num < 0 ? '-' : '';
+            if (absN >= 10_000_000) return sign + (absN / 1_000_000).toFixed(3) + 'M';
+            if (absN >= 1_000) return sign + Math.floor(absN / 1_000).toString() + 'K';
+            return sign + Math.floor(absN).toString();
+        }
+
         const getGoldColorClass = (val) => {
             if (val >= 10_000_000) return 'gold-high';
             if (val >= 100_000) return 'gold-med';
             return 'gold-low';
         }
 
-        const getWikiLink = (name) => {
-            if (!name) return '#';
-            return 'https://oldschool.runescape.wiki/w/' + encodeURIComponent(name.replace(/ /g, '_'));
+        const getPricesLink = (id) => {
+            return `https://prices.runescape.wiki/osrs/item/${id}`
         }
 
 
@@ -273,7 +282,7 @@ createApp({
         const showSuccess = (msg) => { success.value = msg; setTimeout(() => { success.value = null }, 5000) }
 
         // Wrapper for fetch to include Authorization and handle 401/JSON errors
-        const fetchWithAuth = async (url, options = {}) => {
+        const fetchWithAuth = async (url, options = {}, retries = 3, backoff = 1000) => {
             const token = checkAuth()
             if (!token) {
                 throw new Error("unauthorized")
@@ -284,29 +293,54 @@ createApp({
                 'Authorization': `Basic ${token}`
             }
 
-            const res = await fetch(url, { ...options, headers })
-            
-            if (res.status === 401) {
-                logout()
-                throw new Error("unauthorized")
-            }
+            let res;
+            for (let i = 0; i <= retries; i++) {
+                try {
+                    res = await fetch(url, { ...options, headers })
+                } catch (e) {
+                    if (i === retries) {
+                        throw new Error("Network error or service unreachable. Please check your connection.");
+                    }
+                    await new Promise(r => setTimeout(r, backoff * Math.pow(2, i)));
+                    continue;
+                }
+                
+                if (res.status === 401) {
+                    logout()
+                    throw new Error("unauthorized")
+                }
 
-            if (!res.ok) {
+                if (res.ok) {
+                    return res;
+                }
+
+                // Retry on transient Cloud Run cold-start errors
+                if ([502, 503, 504].includes(res.status) && i < retries) {
+                    await new Promise(r => setTimeout(r, backoff * Math.pow(2, i)));
+                    continue;
+                }
+
                 let errMsg = `HTTP Error ${res.status}`
+                if (res.status === 503) {
+                    errMsg = "Service is temporarily unavailable (waking up). Please try again in a moment."
+                } else if (res.status === 502) {
+                    errMsg = "Bad Gateway. The service is starting up, please try again."
+                } else if (res.status === 504) {
+                    errMsg = "Gateway Timeout. The request took too long, please try again."
+                }
+
                 let errStack = null
                 try {
                     const data = await res.json()
                     errMsg = data.error || errMsg
                     errStack = data.stack_trace || null
                 } catch (e) {
-                    // Not JSON, just use status
+                    // Not JSON, just use status message
                 }
                 const err = new Error(errMsg)
                 err.stackTrace = errStack
                 throw err
             }
-            
-            return res
         }
 
         // API Calls
@@ -319,6 +353,8 @@ createApp({
                 if (err.message !== "unauthorized") console.error(err) 
             }
         }
+
+        let lastReportPayloadStr = ""
 
         const fetchReport = async () => {
             if (!isAuthenticated.value) return
@@ -335,6 +371,7 @@ createApp({
                     body: JSON.stringify(payload)
                 })
                 items.value = await response.json() || []
+                lastReportPayloadStr = JSON.stringify(payload)
             } catch (err) {
                 if (err.message !== "unauthorized") {
                     showError(err.message, err.stackTrace)
@@ -409,8 +446,21 @@ createApp({
         const syncPrices = async () => {
             loading.value = true
             try {
-                await fetchWithAuth('/api/sync/prices', { method: 'POST' })
-                if (currentTab.value === 'report') fetchReport()
+                const res = await fetchWithAuth('/api/sync/prices', { method: 'POST' })
+                const syncData = await res.json()
+                
+                const currentPayloadStr = JSON.stringify({
+                    config: localConfig.value,
+                    flips: flipsHistory.value,
+                    failed_sells: failedSellsHistory.value
+                })
+                
+                const dataChanged = syncData.fetched_new_data
+                const payloadChanged = currentPayloadStr !== lastReportPayloadStr
+
+                if (dataChanged || payloadChanged || items.value.length === 0) {
+                    if (currentTab.value === 'report') await fetchReport()
+                }
             } catch (err) {
                 if (err.message !== "unauthorized") showError(err.message, err.stackTrace)
             } finally {
@@ -596,7 +646,7 @@ createApp({
             isDarkMode, toggleTheme,
             showFlipModal, showFailedModal, selectedItem,
             flipForm, failedForm, manualFlipForm, manualFailedForm,
-            formatNumber, getGoldColorClass, getWikiLink, formatDate, fetchReport, fetchHistory, syncPrices, syncMetadata,
+            formatNumber, formatProfit, getGoldColorClass, getPricesLink, formatDate, fetchReport, fetchHistory, syncPrices, syncMetadata,
             handleFileUpload, restoreBackup, recordFlip, recordFailedBuy, closeModals,
             submitFlip, submitFailedBuy, submitManualFlip, submitManualFailedBuy,
             resetToDefaults, exportUserFile, importUserFile,

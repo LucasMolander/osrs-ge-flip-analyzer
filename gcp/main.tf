@@ -132,7 +132,7 @@ resource "google_cloud_run_v2_service" "server" {
 
   template {
     scaling {
-      max_instance_count = 3
+      max_instance_count = 1
     }
     service_account = google_service_account.run_sa.email
     containers {
@@ -142,6 +142,7 @@ resource "google_cloud_run_v2_service" "server" {
           cpu    = var.cpu
           memory = var.memory
         }
+        cpu_idle = true
       }
       ports {
         container_port = var.container_port

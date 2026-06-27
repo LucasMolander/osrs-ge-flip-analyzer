@@ -66,14 +66,41 @@ if ! gcloud run deploy "${SERVICE_NAME}" \
     --cpu="${CPU}" \
     --memory="${MEMORY}" \
     --project="${PROJECT_ID}" \
-    --max-instances="3" \
+    --cpu-throttling \
+    --max-instances="1" \
     --allow-unauthenticated; then
   echo "⚠️  Failed to deploy to Cloud Run. The service may not be provisioned yet."
   echo "   I tried! Exiting..."
-  exit 0
+  exit 1
 fi
 
 CLOUD_RUN_URL=$(gcloud run services describe "${SERVICE_NAME}" --region="${REGION}" --format="value(status.url)")
+
+echo ""
+echo "Step 6: Verifying deployment..."
+# The gcloud run deploy command is synchronous and waits for the revision to be ready.
+# However, we will verify the service is serving traffic to be absolutely sure.
+# We will poll for up to 1 minute.
+MAX_RETRIES=12
+RETRY_COUNT=0
+READY=false
+
+while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+  if curl -s -f -o /dev/null "${CLOUD_RUN_URL}/"; then
+    echo "✅ The newest version is up, running, and ready to serve traffic."
+    READY=true
+    break
+  fi
+  
+  echo "⏳ Waiting for service to become fully ready (attempt $((RETRY_COUNT+1))/$MAX_RETRIES)..."
+  sleep 5
+  RETRY_COUNT=$((RETRY_COUNT+1))
+done
+
+if [ "$READY" = false ]; then
+  echo "⚠️  The service is deployed but still returning a non-200 status code on the root path after 1 minute."
+  echo "   It might still be initializing or there could be an error. Proceed with caution."
+fi
 
 echo ""
 echo "================================================================="

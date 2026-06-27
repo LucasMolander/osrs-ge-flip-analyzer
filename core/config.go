@@ -65,6 +65,10 @@ type RankingConfig struct {
 	SpreadJitterRewardMultiplier  float64 `json:"spread_jitter_reward_multiplier"`  // e.g. 1.20
 	SpreadSpikeThreshold          float64 `json:"spread_spike_threshold"`           // e.g. 2.0
 	SpreadSpikePenaltyMultiplier  float64 `json:"spread_spike_penalty_multiplier"`  // e.g. 2.0
+
+	// Stale Data Penalties
+	StalePriceThresholdMinutes  float64 `json:"stale_price_threshold_minutes"`  // e.g. 5.0
+	StalePricePenaltyMultiplier float64 `json:"stale_price_penalty_multiplier"` // e.g. 0.1
 }
 
 // DefaultRankingConfig returns a configuration struct matching the original hardcoded values.
@@ -104,6 +108,8 @@ func DefaultRankingConfig() *RankingConfig {
 		SpreadJitterRewardMultiplier:  1.20,
 		SpreadSpikeThreshold:          2.0,
 		SpreadSpikePenaltyMultiplier:  2.0,
+		StalePriceThresholdMinutes:    5.0,
+		StalePricePenaltyMultiplier:   0.1,
 	}
 }
 

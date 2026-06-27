@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -107,12 +108,13 @@ func TestAnalyzePrices_TaxAndBuffer(t *testing.T) {
 	hTbowHigh := int64(1_200_000_000)
 	hTbowLow := int64(1_190_000_000)
 
+	now := time.Now().Unix()
 	prices := map[string]LatestPrice{
-		"1": {High: &hCheapHigh, Low: &hCheapLow},
-		"2": {High: &hStdHigh, Low: &hStdLow},
-		"3": {High: &hExpHigh, Low: &hExpLow},
-		"4": {High: &hNarrowHigh, Low: &hNarrowLow},
-		"5": {High: &hTbowHigh, Low: &hTbowLow},
+		"1": {High: &hCheapHigh, Low: &hCheapLow, HighTime: &now, LowTime: &now},
+		"2": {High: &hStdHigh, Low: &hStdLow, HighTime: &now, LowTime: &now},
+		"3": {High: &hExpHigh, Low: &hExpLow, HighTime: &now, LowTime: &now},
+		"4": {High: &hNarrowHigh, Low: &hNarrowLow, HighTime: &now, LowTime: &now},
+		"5": {High: &hTbowHigh, Low: &hTbowLow, HighTime: &now, LowTime: &now},
 	}
 
 	// High volumes to ignore volume penalty (VolumeFactor ~ 1.0)
@@ -129,8 +131,9 @@ func TestAnalyzePrices_TaxAndBuffer(t *testing.T) {
 	config := DefaultRankingConfig()
 	config.BaseCapital = 1_000_000_000_000
 	config.MinAbsoluteVolume = 1
+	config.StalePricePenaltyMultiplier = 1.0
 
-	report := AnalyzePrices(prices, volumes, metadata, nudges, nil, nil, nil, nil, nil, "", config, nil)
+	report := AnalyzePrices(context.Background(), time.Now().Unix(), prices, volumes, metadata, nudges, nil, nil, nil, nil, nil, "", config, nil)
 
 	// We expect 4 items (Cheap Item, Standard Item, Expensive Item, Twisted Bow). Narrow Spread Item is filtered.
 	if len(report) != 4 {
@@ -229,8 +232,9 @@ func TestAnalyzePrices_Heuristics(t *testing.T) {
 	configHeur := DefaultRankingConfig()
 	configHeur.BaseCapital = 1_000_000_000
 	configHeur.MinAbsoluteVolume = 10
+	configHeur.StalePricePenaltyMultiplier = 1.0
 
-	report := AnalyzePrices(prices, volumes, metadata, nudges, nil, nil, nil, nil, nil, "", configHeur, nil)
+	report := AnalyzePrices(context.Background(), time.Now().Unix(), prices, volumes, metadata, nudges, nil, nil, nil, nil, nil, "", configHeur, nil)
 
 	if len(report) != 2 {
 		t.Fatalf("Expected 2 items in report, got %d", len(report))
@@ -283,8 +287,9 @@ func TestAnalyzePrices_Heuristics(t *testing.T) {
 	configCap := DefaultRankingConfig()
 	configCap.BaseCapital = 10000
 	configCap.MinAbsoluteVolume = 1
+	configCap.StalePricePenaltyMultiplier = 1.0
 
-	reportCap := AnalyzePrices(pricesCap, volumesCap, metadataCap, nudges, nil, nil, nil, nil, nil, "", configCap, nil)
+	reportCap := AnalyzePrices(context.Background(), time.Now().Unix(), pricesCap, volumesCap, metadataCap, nudges, nil, nil, nil, nil, nil, "", configCap, nil)
 
 	if len(reportCap) != 1 || reportCap[0].ID != 3 {
 		t.Fatalf("Expected only Item 3 to survive the capital filter, got %d items", len(reportCap))
@@ -318,8 +323,9 @@ func TestAnalyzePrices_Nudge(t *testing.T) {
 	configNudge := DefaultRankingConfig()
 	configNudge.BaseCapital = 1_000_000_000
 	configNudge.MinAbsoluteVolume = 1
+	configNudge.StalePricePenaltyMultiplier = 1.0
 
-	report := AnalyzePrices(prices, volumes, metadata, nudges, nil, nil, nil, nil, nil, "", configNudge, nil)
+	report := AnalyzePrices(context.Background(), time.Now().Unix(), prices, volumes, metadata, nudges, nil, nil, nil, nil, nil, "", configNudge, nil)
 
 	if len(report) != 1 {
 		t.Fatalf("Expected 1 item in report, got %d", len(report))
@@ -356,14 +362,15 @@ func TestAnalyzePrices_TrendPenalties(t *testing.T) {
 	// For all items, Raw Prices are: High = 1000, Low = 800.
 	// Average price is (1000+800)/2 = 900.
 	// CurrentPrice = 900.
-	hHigh := int64(1000)
-	hLow := int64(800)
+	h := int64(1000)
+	l := int64(800)
+	now := time.Now().Unix()
 	prices := map[string]LatestPrice{
-		"1": {High: &hHigh, Low: &hLow},
-		"2": {High: &hHigh, Low: &hLow},
-		"3": {High: &hHigh, Low: &hLow},
-		"4": {High: &hHigh, Low: &hLow},
-		"5": {High: &hHigh, Low: &hLow},
+		"1": {High: &h, Low: &l, HighTime: &now, LowTime: &now}, // Stable
+		"2": {High: &h, Low: &l, HighTime: &now, LowTime: &now}, // Dropping 1h
+		"3": {High: &h, Low: &l, HighTime: &now, LowTime: &now}, // Dropping 24h
+		"4": {High: &h, Low: &l, HighTime: &now, LowTime: &now}, // Dropping 30d
+		"5": {High: &h, Low: &l, HighTime: &now, LowTime: &now}, // Dropping ALL
 	}
 
 	volumes := map[string]HourlyVolume{
@@ -384,40 +391,43 @@ func TestAnalyzePrices_TrendPenalties(t *testing.T) {
 		}
 	}
 
-	// 1h ago: Item 2 and 5 are down (historical avg 1000 > currentPrice 900)
+	// 1h ago: Item 2 and 5 are down (historical avg 1100 > currentHigh 1000)
 	hist1h := map[string]HourlyVolume{
-		"1": hVol(900),  // stable
-		"2": hVol(1000), // down
-		"3": hVol(900),  // stable
-		"4": hVol(900),  // stable
-		"5": hVol(1000), // down
+		"1": hVol(1000), // stable
+		"2": hVol(1100), // down
+		"3": hVol(1000), // stable
+		"4": hVol(1000), // stable
+		"5": hVol(1100), // down
 	}
 
 	// 24h ago: Item 3 and 5 are down
 	hist24h := map[string]HourlyVolume{
-		"1": hVol(900),
-		"2": hVol(900),
-		"3": hVol(1000),
-		"4": hVol(900),
-		"5": hVol(1000),
+		"1": hVol(1000),
+		"2": hVol(1000),
+		"3": hVol(1100),
+		"4": hVol(1000),
+		"5": hVol(1100),
 	}
 
 	// 30d ago: Item 4 and 5 are down
 	hist30d := map[string]HourlyVolume{
-		"1": hVol(900),
-		"2": hVol(900),
-		"3": hVol(900),
-		"4": hVol(1000),
-		"5": hVol(1000),
+		"1": hVol(1000),
+		"2": hVol(1000),
+		"3": hVol(1000),
+		"4": hVol(1100),
+		"5": hVol(1100),
 	}
 
 	nudges := make(map[int]float64)
 
 	config := DefaultRankingConfig()
+	config.BaseCapital = 1_000_000_000_000
+	config.MinAbsoluteVolume = 10
 	config.OutlierZScoreThreshold = 9999.0 // Disable outlier penalty to isolate trend penalties
+	config.StalePricePenaltyMultiplier = 1.0
 
 	// Run analyzer
-	report := AnalyzePrices(prices, volumes, metadata, nudges, hist1h, hist24h, hist30d, nil, nil, "", config, nil)
+	report := AnalyzePrices(context.Background(), time.Now().Unix(), prices, volumes, metadata, nudges, hist1h, hist24h, hist30d, nil, nil, "", config, nil)
 
 	if len(report) != 5 {
 		t.Fatalf("Expected 5 items in report, got %d", len(report))
@@ -495,7 +505,7 @@ func TestAnalyzePrices_AbsoluteVolumeFilter(t *testing.T) {
 	config.MinAbsoluteVolume = 10
 
 	// Run analyzer
-	report := AnalyzePrices(prices, volumes, metadata, nudges, nil, nil, nil, nil, nil, "", config, nil)
+	report := AnalyzePrices(context.Background(), time.Now().Unix(), prices, volumes, metadata, nudges, nil, nil, nil, nil, nil, "", config, nil)
 
 	// We expect only 2 items (Item 3 and 4) in the report. Item 1 and 2 are filtered out.
 	if len(report) != 2 {
@@ -555,7 +565,7 @@ func TestCalculateNudges(t *testing.T) {
 		Notes:     "Missed it",
 	}
 
-	multipliers := CalculateNudges(DefaultRankingConfig(), []FlipRecord{flip}, []FailedSellRecord{failed1, failed2})
+	multipliers := CalculateNudges(context.Background(), DefaultRankingConfig(), []FlipRecord{flip}, []FailedSellRecord{failed1, failed2})
 
 	// 7. Verify multipliers
 	// Item 4151:

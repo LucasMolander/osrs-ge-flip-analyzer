@@ -1,32 +1,71 @@
 package main
 
 import (
-	"fmt"
-	"log"
-	"os"
-	"github.com/lucasmolander/osrs-ge-flip-analyzer/core"
-	"github.com/lucasmolander/osrs-ge-flip-analyzer/web"
+"context"
+"fmt"
+"log"
+"os"
+"time"
+"runtime"
+
+"cloud.google.com/go/profiler"
+
+"github.com/lucasmolander/osrs-ge-flip-analyzer/core"
+"github.com/lucasmolander/osrs-ge-flip-analyzer/web"
 )
 
+func debugLog(msg string) {
+	fmt.Println(msg)
+	os.Stdout.Sync()
+}
+
 func main() {
+	runtime.SetBlockProfileRate(1)
+	runtime.SetMutexProfileFraction(1)
+
+	debugLog("ge-analyzer-server starting...")
 	isServer := os.Getenv("PORT") != "" || (len(os.Args) >= 2 && os.Args[1] == "serve")
 
+	debugLog("Initializing storage...")
 	var err error
+	
+	// Fast timeout for debugging
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	_ = ctx
+
+	debugLog("Calling NewStorage...")
 	core.Store, err = core.NewStorage(isServer)
 	if err != nil {
 		log.Fatalf("Failed to initialize storage: %v", err)
 	}
+	debugLog("Storage initialized.")
 
-	// Load config
+	debugLog("Loading config...")
 	config, err := core.LoadConfig("config.json")
 	if err != nil {
-		log.Printf("Warning: failed to load config.json (%v), using defaults", err)
+		debugLog(fmt.Sprintf("Warning: failed to load config.json (%v), using defaults", err))
 		config = core.DefaultRankingConfig()
 	}
+	debugLog("Config loaded.")
 
-	// Check if PORT env var is set (standard for cloud environments like Cloud Run)
 	port := os.Getenv("PORT")
 	if port != "" {
+		debugLog(fmt.Sprintf("Detected PORT=%s, starting server...", port))
+
+		// Initialize Google Cloud Profiler
+		cfg := profiler.Config{
+			Service:        "ge-analyzer-service",
+			ServiceVersion: "1.0.0",
+			DebugLogging:   true,
+			ProjectID:      os.Getenv("GOOGLE_CLOUD_PROJECT"),
+		}
+		if err := profiler.Start(cfg); err != nil {
+			log.Printf("Warning: failed to start Google Cloud Profiler: %v", err)
+		} else {
+			debugLog("Google Cloud Profiler started successfully.")
+		}
+
 		client := core.NewClient("")
 		err := web.StartServer(port, client, 20000000, 10, 50, core.Store, config)
 		if err != nil {
@@ -66,4 +105,3 @@ func main() {
 		os.Exit(1)
 	}
 }
-

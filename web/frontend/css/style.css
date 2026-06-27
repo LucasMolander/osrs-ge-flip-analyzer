@@ -263,6 +263,26 @@ body {
     white-space: nowrap;
 }
 
+.item-icon-wrapper {
+    width: 32px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    flex-shrink: 0;
+    margin-right: 8px;
+}
+
+.item-icon {
+    max-width: 24px;
+    max-height: 24px;
+    object-fit: contain;
+}
+
+.item-name a {
+    display: flex;
+    align-items: center;
+}
+
 .flip-table tbody tr {
     transition: background 0.2s;
 }

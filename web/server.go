@@ -1,14 +1,18 @@
 package web
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"net/http"
 	"os"
 	"strings"
 	"sync"
+	httppprof "net/http/pprof"
+	"runtime/pprof"
 
 	"golang.org/x/time/rate"
+	"golang.org/x/net/trace"
 
 	"github.com/lucasmolander/osrs-ge-flip-analyzer/core"
 )
@@ -43,10 +47,28 @@ func StartServer(port string, client *core.OSRSClient, capital, volThreshold int
 	apiMux.HandleFunc("/api/backup", app.apiBackupHandler)
 	apiMux.HandleFunc("/api/restore", app.apiRestoreHandler)
 	apiMux.HandleFunc("/api/config/default", app.apiConfigDefaultHandler)
+	apiMux.HandleFunc("/api/profiling/metrics", app.apiProfilingMetricsHandler)
+
+	// Standard Go Profiling (pprof) endpoints
+	apiMux.HandleFunc("/debug/pprof/", httppprof.Index)
+	apiMux.HandleFunc("/debug/pprof/cmdline", httppprof.Cmdline)
+	apiMux.HandleFunc("/debug/pprof/profile", httppprof.Profile)
+	apiMux.HandleFunc("/debug/pprof/symbol", httppprof.Symbol)
+	apiMux.HandleFunc("/debug/pprof/trace", httppprof.Trace)
 
 	// App-Level Authentication
 	username := os.Getenv("AUTH_USERNAME")
 	password := os.Getenv("AUTH_PASSWORD")
+	
+	// Override x/net/trace AuthRequest to allow external traffic.
+	// Since apiMux is already protected by BasicAuthMiddleware, this is safe.
+	trace.AuthRequest = func(req *http.Request) (any, sensitive bool) {
+		return true, true
+	}
+	
+	// HTML/RPC Tracing endpoints
+	apiMux.HandleFunc("/debug/requests", trace.Traces)
+	apiMux.HandleFunc("/debug/events", trace.Events)
 
 	if username == "" || password == "" {
 		fmt.Printf("Error: AUTH_USERNAME or AUTH_PASSWORD environment variables are not set.\n")
@@ -85,8 +107,12 @@ func StartServer(port string, client *core.OSRSClient, capital, volThreshold int
 	// Cron Endpoint (Unauthenticated by Basic Auth, protected by CRON_SECRET)
 	mux.HandleFunc("/api/internal/cron-tick", app.apiCronTickHandler)
 
-	// All other /api/ routes are authenticated and rate-limited
-	mux.Handle("/api/", RateLimitMiddleware(authApiMux, limiter))
+	// Wrap authApiMux with PprofLabelMiddleware before rate limiting
+	labeledAuthApiMux := PprofLabelMiddleware(authApiMux)
+
+	// All other /api/ and /debug/ routes are authenticated and rate-limited
+	mux.Handle("/api/", RateLimitMiddleware(labeledAuthApiMux, limiter))
+	mux.Handle("/debug/", RateLimitMiddleware(labeledAuthApiMux, limiter))
 
 	// Static File Server for the Vue 3 Frontend (Unauthenticated, but rate-limited)
 	fs := http.FileServer(http.Dir("./web/frontend"))
@@ -103,12 +129,27 @@ func BasicAuthMiddleware(next http.Handler, username, password string) http.Hand
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		user, pass, ok := r.BasicAuth()
 		if !ok || user != username || pass != password {
-			// Intentionally omitting WWW-Authenticate header to prevent native browser login popup.
+			// Intentionally omitting WWW-Authenticate header for /api/ routes to prevent native browser login popup.
 			// This allows the Vue frontend to display a custom login page instead.
+			if strings.HasPrefix(r.URL.Path, "/debug/") {
+				w.Header().Set("WWW-Authenticate", `Basic realm="Restricted"`)
+			}
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
 		next.ServeHTTP(w, r)
+	})
+}
+
+// PprofLabelMiddleware adds the HTTP request path as a pprof label.
+func PprofLabelMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		labels := pprof.Labels("handler", r.URL.Path)
+		pprof.Do(ctx, labels, func(ctx context.Context) {
+			r = r.WithContext(ctx)
+			next.ServeHTTP(w, r)
+		})
 	})
 }
 

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"flag"
 	"log"
@@ -50,7 +51,7 @@ func handlePricesCommand() {
 	timestamp := time.Now().Unix()
 
 	fmt.Println("Fetching and saving latest prices and volumes...")
-	if err := core.DownloadPrices(client, timestamp); err != nil {
+	if _, err := core.DownloadPrices(context.Background(), client, timestamp); err != nil {
 		log.Fatalf("Error downloading prices: %v", err)
 	}
 	fmt.Println("Prices and volumes downloaded successfully.")
@@ -65,7 +66,7 @@ func handleItemMetadataCommand() {
 	timestamp := time.Now().Unix()
 
 	fmt.Println("Fetching and saving item metadata...")
-	_, path, err := core.DownloadMetadata(client, timestamp)
+	_, path, err := core.DownloadMetadata(context.Background(), client, timestamp)
 	if err != nil {
 		log.Fatalf("Error: %v", err)
 	}
@@ -93,7 +94,7 @@ func handleReportCommand() {
 	}
 
 	client := core.NewClient(*ua)
-	reportItems, err := core.RunAnalysis(client, *capital, *volThreshold, *limit, !*skipDownload, filterName, config, nil, nil)
+	reportItems, err := core.RunAnalysis(context.Background(), client, *capital, *volThreshold, *limit, !*skipDownload, filterName, config, nil, nil)
 	if err != nil {
 		log.Fatalf("Analysis failed: %v", err)
 	}

@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Loading Profile in Speedscope...</title>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            overflow: hidden;
+            background-color: #0f172a;
+            color: #0ea5e9;
+            font-family: monospace;
+        }
+        #status {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+        iframe {
+            display: none;
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="status">Fetching profile...</div>
+    <iframe id="speedscope-frame"></iframe>
+    <script>
+        async function load() {
+            const params = new URLSearchParams(window.location.search);
+            const target = params.get('target');
+            const auth = params.get('auth');
+            
+            if (!target || !auth) {
+                document.getElementById('status').innerText = 'Error: Missing parameters';
+                return;
+            }
+
+            try {
+                const response = await fetch(target, {
+                    headers: { 'Authorization': 'Basic ' + auth }
+                });
+                
+                if (!response.ok) {
+                    throw new Error('HTTP ' + response.status);
+                }
+
+                const blob = await response.blob();
+                const url = URL.createObjectURL(blob);
+                
+                // Hide status, show iframe
+                document.getElementById('status').style.display = 'none';
+                const iframe = document.getElementById('speedscope-frame');
+                iframe.style.display = 'block';
+                
+                // Load Speedscope in the iframe so the blob URL remains valid
+                iframe.src = '/speedscope/#profileURL=' + encodeURIComponent(url);
+                
+                // Set the page title to match the target
+                document.title = "Speedscope: " + target;
+            } catch (err) {
+                document.getElementById('status').innerText = 'Error fetching profile: ' + err.message;
+            }
+        }
+        load();
+    </script>
+</body>
+</html>

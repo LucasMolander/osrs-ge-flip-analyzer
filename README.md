@@ -13,3 +13,14 @@ This repository is structured into distinct modules to separate the business log
 - **`gcp/`**: Infrastructure as Code (Terraform) and bash scripts for deploying the application to Google Cloud Run.
 - **`reports/`**: (Generated) Output directory where the application dumps `.json` and `.md` market reports when run in offline analysis mode.
 - **`prices/` & `item_data/`**: (Generated) Caching directories for the local disk-based persistence store.
+- **`flips/`**: (Generated) Local directory containing saved flip histories in JSON format.
+- **`deploy/`**: Directory for Docker deployment files, primarily used for building the container image.
+- **`reference/`**: Static reference data and scripts utilized by the pipeline to map item IDs to names and properties.
+- **`config.json`**: The global configuration file establishing default penalty curves, parameters, and ranking weights.
+- **`update_index.py`**: A Python script to pull new item mappings and metadata from the OSRS Wiki into the reference directory.
+- **`scratch_app.js`**: Scratchpad for UI/Vue.js changes and testing.
+- **`ge-analyzer`**: (Generated) The compiled Go binary executable.
+- **`go.mod` & `go.sum`**: Go module definitions and dependency lock files.
+- **`.gitignore`**: Global rules for files and folders to ignore in version control.
+- **`LICENSE`**: The open-source license terms for this repository.
+- **`out.log`**: (Generated) Output log from background processes or the web server.

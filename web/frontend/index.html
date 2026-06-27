@@ -9,7 +9,7 @@
     <!-- Vue 3 via CDN -->
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <!-- Custom CSS -->
-    <link rel="stylesheet" href="/css/style.css?v=13">
+    <link rel="stylesheet" href="/css/style.css?v=15">
     <style>
         .form-row {
             display: flex;
@@ -41,6 +41,7 @@
                     <button :class="['tab-btn', { active: currentTab === 'manual' }]" @click="currentTab = 'manual'">Manual Entry</button>
                     <button :class="['tab-btn', { active: currentTab === 'history' }]" @click="currentTab = 'history'">History</button>
                     <button :class="['tab-btn', { active: currentTab === 'settings' }]" @click="currentTab = 'settings'">Settings</button>
+                    <a href="/profiling.html" class="tab-btn" target="_blank" style="text-decoration: none;">📊 Profiler</a>
                 </div>
                 <button class="theme-toggle-btn" @click="toggleTheme" :title="isDarkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'">
                     {{ isDarkMode ? '☀️' : '🌙' }}
@@ -121,15 +122,19 @@
                             </tr>
                         </thead>
                         <tbody>
-                            <tr v-for="(item, index) in sortedItems" :key="item.item_id" :class="{'is-sink': item.is_sink}">
+                            <tr v-for="(item, index) in sortedItems" :key="item.id" :class="{'is-sink': item.is_sink}">
                                 <td>#{{ index + 1 }}</td>
                                 <td class="item-name">
-                                    <a :href="getWikiLink(item.name)" target="_blank">
-                                        {{ item.name }}
+                                    <a :href="getPricesLink(item.id)" target="_blank">
+                                        <div class="item-icon-wrapper">
+                                            <img :src="`https://oldschool.runescape.wiki/images/${encodeURIComponent((item.icon || (item.name + '.png')).replace(/ /g, '_'))}?12345`"
+                                                class="item-icon" alt="icon" @error="$event.target.src='https://oldschool.runescape.wiki/images/Bank_filler.png'" />
+                                        </div>
+                                        <span>{{ item.name }}</span>
                                     </a>
                                 </td>
                                 <td class="score">{{ Math.round(item.score) }}</td>
-                                <td :class="['profit', 'positive', getGoldColorClass(item.potential_profit)]">{{ formatNumber(item.potential_profit) }}</td>
+                                <td :class="['profit', 'positive', getGoldColorClass(item.potential_profit)]">{{ formatProfit(item.potential_profit) }}</td>
                                 <td :class="['profit', getGoldColorClass(item.profit_per_item)]">{{ formatNumber(item.profit_per_item) }}</td>
                                 <td :class="['capital', getGoldColorClass(item.capital_required)]">{{ formatNumber(item.capital_required) }}</td>
                                 <td :class="['spread', getGoldColorClass(item.low)]">{{ formatNumber(item.low) }}</td>
@@ -205,9 +210,9 @@
 
             <!-- TAB: HISTORY -->
             <div v-show="currentTab === 'history'">
-                <div class="tab-header">
-                    <h2>Transaction History</h2>
-                    <button @click="fetchHistory" class="btn" :disabled="loading">↻ Refresh</button>
+                <div class="user-stats" v-if="localConfig">
+                    <span title="Total Liquid Capital Available (Limits Buy Quantity)">Capital: {{ formatNumber(localConfig.BaseCapital) }}</span>
+                    <button class="logout-btn" @click="logout" title="Sign Out">Logout</button>
                 </div>
 
                 <div class="history-grid">
@@ -437,6 +442,21 @@
                         </div>
 
                         <div class="config-section">
+                            <h3>Stale Data Penalties</h3>
+                            <p class="text-sm">Penalizes items that haven't traded recently.</p>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label>Threshold (min)</label>
+                                    <input type="number" step="1" v-model.number="localConfig.stale_price_threshold_minutes">
+                                </div>
+                                <div class="form-group">
+                                    <label>Penalty Mult</label>
+                                    <input type="number" step="0.01" v-model.number="localConfig.stale_price_penalty_multiplier">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="config-section">
                             <h3>Spread Jitter & Spike Penalties</h3>
                             <p class="text-sm">Rewards solid margins, penalizes massive whipsaws in the spread.</p>
                             <div class="form-row">
@@ -519,6 +539,6 @@
     </div>
 
     <!-- Custom Vue App Logic -->
-    <script src="/js/app.js?v=6"></script>
+    <script src="/js/app.js?v=9"></script>
 </body>
 </html>

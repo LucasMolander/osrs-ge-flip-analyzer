@@ -51,10 +51,18 @@ func (app *AppServer) apiReportHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	
+	// If the frontend sends `"config": null` before it finishes loading defaults,
+	// the JSON decoder will overwrite req.Config with nil. Restore it.
+	if req.Config == nil {
+		configCopy2 := *app.Config
+		req.Config = &configCopy2
+	}
+	
 	config := req.Config
 
-	// Try to download fresh data, but DownloadPrices will skip if data < 60s old exists in Object Storage.
-	flips, err := core.RunAnalysis(app.Client, app.Capital, app.VolThreshold, app.Limit, true, "", config, req.Flips, req.FailedSells)
+	// Don't force download on page load, just use the latest cached data. The background cron job keeps this fresh.
+	flips, err := core.RunAnalysis(r.Context(), app.Client, app.Capital, app.VolThreshold, app.Limit, false, "", config, req.Flips, req.FailedSells)
 	if err != nil {
 		sendError(w, err, "Failed to generate report", http.StatusInternalServerError)
 		return
@@ -91,7 +99,7 @@ func (app *AppServer) apiCronTickHandler(w http.ResponseWriter, r *http.Request)
 	fmt.Println("[Cron] Received 1-minute tick from Cloud Scheduler. Fetching market data...")
 
 	// forceDownload = true to actually pull new data from OSRS Wiki APIs
-	_, err := core.RunAnalysis(app.Client, app.Capital, app.VolThreshold, app.Limit, true, "", app.Config, nil, nil)
+	_, err := core.RunAnalysis(r.Context(), app.Client, app.Capital, app.VolThreshold, app.Limit, true, "", app.Config, nil, nil)
 	if err != nil {
 		fmt.Printf("[Cron] Error generating report: %v\n", err)
 		sendError(w, err, "Failed to generate background report", http.StatusInternalServerError)

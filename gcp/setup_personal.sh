@@ -12,8 +12,8 @@ REPOSITORY_NAME="ge-analyzer-repo"
 IMAGE_NAME="ge-analyzer-server"
 SERVICE_NAME="ge-analyzer-service"
 CONTAINER_PORT="8080"
-CPU="4"
-MEMORY="4Gi"
+CPU="2"
+MEMORY="1Gi"
 if [ -x "/google/data/ro/teams/terraform/bin/terraform" ]; then
   TERRAFORM_CMD="/google/data/ro/teams/terraform/bin/terraform"
 elif command -v terraform &> /dev/null; then

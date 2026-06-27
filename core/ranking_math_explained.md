@@ -126,7 +126,20 @@ Multiplier = 1.0 + Sum(Flip_Value * Exp(-Hours_Since_Flip / Half_Life))
 ## 5. Market Momentum Modifiers
 The analyzer detects crashing markets and temporary volatility spikes to adjust recommendations.
 
-### 5a. Price Trend Modifiers
+### 5a. Stale Price Penalty
+*Config Variables: `stale_price_threshold_minutes`, `stale_price_penalty_multiplier`*
+
+If an item has not been traded recently, its High and Low prices become highly unreliable, often representing abandoned GE offers rather than the true active spread.
+
+```text
+Threshold_Seconds = stale_price_threshold_minutes * 60
+
+if (Current_Time - HighTime) > Threshold_Seconds OR (Current_Time - LowTime) > Threshold_Seconds:
+    TrendMultiplier *= stale_price_penalty_multiplier
+```
+*Note: This penalty defaults to a massive 90% score reduction (`0.10`) for any item where the High or Low price is older than 5 minutes.*
+
+### 5b. Price Trend Modifiers
 *Config Variables: `price_trend_penalty_1h`, `price_trend_penalty_24h`*
 
 If the current **HighPrice** (sell ceiling) is strictly less than historical moving averages, the market is actively crashing, and penalties are chained:
