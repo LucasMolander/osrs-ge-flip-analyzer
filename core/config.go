@@ -13,7 +13,7 @@ type RankingConfig struct {
 	TaxCap  int64   `json:"tax_cap"`  // Default: 5000000
 
 	// User State & Filters
-	BaseCapital           int64   `json:"base_capital"`             // e.g. 100000000 (100M)
+	BaseCapital                int64   `json:"base_capital"`                  // e.g. 100000000 (100M)
 	MinAbsoluteVolume          int64   `json:"min_absolute_volume"`           // e.g. 10
 	VolumeRatioFilterThreshold float64 `json:"volume_ratio_filter_threshold"` // e.g. 0.1
 
@@ -41,8 +41,8 @@ type RankingConfig struct {
 	NudgeMax float64 `json:"nudge_max"` // e.g. 2.0
 
 	// Base Score Penalties
-	VolumeRatioPenaltyMax     float64 `json:"volume_ratio_penalty_max"`     // e.g. 1.30
-	AbsoluteVolumePenaltyMax  float64 `json:"absolute_volume_penalty_max"`  // e.g. 1.30
+	VolumeRatioPenaltyMax    float64 `json:"volume_ratio_penalty_max"`    // e.g. 1.30
+	AbsoluteVolumePenaltyMax float64 `json:"absolute_volume_penalty_max"` // e.g. 1.30
 
 	// Price Trend Penalties (Multipliers applied when item price is crashing vs moving averages)
 	PriceTrendPenalty1h  float64 `json:"price_trend_penalty_1h"`  // e.g. 0.80
@@ -53,8 +53,8 @@ type RankingConfig struct {
 	VolumeSpike24hMultiplier float64 `json:"volume_spike_24h_multiplier"` // Reward for sudden 1h volume relative to 24h (e.g. 1.20)
 
 	// Price Outlier Penalties
-	OutlierZScoreThreshold      float64 `json:"outlier_z_score_threshold"`     // e.g. 2.0
-	OutlierPenaltyMultiplier    float64 `json:"outlier_penalty_multiplier"`    // e.g. 0.5
+	OutlierZScoreThreshold   float64 `json:"outlier_z_score_threshold"`  // e.g. 2.0
+	OutlierPenaltyMultiplier float64 `json:"outlier_penalty_multiplier"` // e.g. 0.5
 
 	// Jitter & Spike Penalties
 	HighJitterThreshold           float64 `json:"high_jitter_threshold"`
@@ -64,46 +64,46 @@ type RankingConfig struct {
 	SpreadJitterRelThreshold      float64 `json:"spread_jitter_rel_threshold"`
 	SpreadJitterAbsThreshold      float64 `json:"spread_jitter_abs_threshold"`
 	SpreadJitterPenaltyMultiplier float64 `json:"spread_jitter_penalty_multiplier"`
-	SpreadSpikeThreshold          float64 `json:"spread_spike_threshold"`           // e.g. 2.0
-	SpreadSpikePenaltyMultiplier  float64 `json:"spread_spike_penalty_multiplier"`  // e.g. 2.0
+	SpreadSpikeThreshold          float64 `json:"spread_spike_threshold"`          // e.g. 2.0
+	SpreadSpikePenaltyMultiplier  float64 `json:"spread_spike_penalty_multiplier"` // e.g. 2.0
 
 	// Stale Data Penalties
 	StaleBaseGraceMinutes         float64 `json:"stale_base_grace_minutes"`
 	StaleETIMultiplier            float64 `json:"stale_eti_multiplier"`
 	StaleMaxGraceMinutes          float64 `json:"stale_max_grace_minutes"`
 	StaleExtremePenaltyMultiplier float64 `json:"stale_extreme_penalty_multiplier"`
-	WorstSpreadPenaltyMinGap      float64 `json:"worst_spread_penalty_min_gap"`     // e.g. 5.0
+	WorstSpreadPenaltyMinGap      float64 `json:"worst_spread_penalty_min_gap"` // e.g. 5.0
 }
 
 // DefaultRankingConfig returns a configuration struct matching the original hardcoded values.
 func DefaultRankingConfig() *RankingConfig {
 	return &RankingConfig{
-		BaseCapital:                100_000_000,
-		TaxRate:                    0.02,
-		TaxCap:                     5_000_000,
-		MinAbsoluteVolume:          10,
-		VolumeRatioFilterThreshold: 0.1,
-		TargetProfitBenchmark:      400000.0,
-		ProfitRewardCap:            5.0,
-		TargetROI:                  0.02,
-		ROIRewardCap:               2.0,
-		FlipHalfLifeHours:          168.0,
-		FlipModifierMeh:           -0.10,
-		FlipModifierMid:           0.0,
-		FlipModifierGood:          0.10,
-		FlipModifierGreat:         0.20,
-		FailedSellHalfLifeHours:   72.0,
-		FailedSellPenalty:         -0.40,
-		NudgeMin:                  0.05,
-		NudgeMax:                  2.0,
-		VolumeRatioPenaltyMax:     1.30,
-		AbsoluteVolumePenaltyMax:  1.30,
-		PriceTrendPenalty1h:       0.80,
-		PriceTrendPenalty24h:      0.90,
-		VolumeSpike5mMultiplier:     1.50,
+		BaseCapital:                   100_000_000,
+		TaxRate:                       0.02,
+		TaxCap:                        5_000_000,
+		MinAbsoluteVolume:             10,
+		VolumeRatioFilterThreshold:    0.1,
+		TargetProfitBenchmark:         400000.0,
+		ProfitRewardCap:               5.0,
+		TargetROI:                     0.02,
+		ROIRewardCap:                  2.0,
+		FlipHalfLifeHours:             168.0,
+		FlipModifierMeh:               -0.10,
+		FlipModifierMid:               0.0,
+		FlipModifierGood:              0.10,
+		FlipModifierGreat:             0.20,
+		FailedSellHalfLifeHours:       72.0,
+		FailedSellPenalty:             -0.40,
+		NudgeMin:                      0.05,
+		NudgeMax:                      2.0,
+		VolumeRatioPenaltyMax:         1.30,
+		AbsoluteVolumePenaltyMax:      1.30,
+		PriceTrendPenalty1h:           0.80,
+		PriceTrendPenalty24h:          0.90,
+		VolumeSpike5mMultiplier:       1.50,
 		VolumeSpike24hMultiplier:      1.20,
-		OutlierZScoreThreshold:      2.0,
-		OutlierPenaltyMultiplier:    0.5,
+		OutlierZScoreThreshold:        2.0,
+		OutlierPenaltyMultiplier:      0.5,
 		HighJitterThreshold:           0.30,
 		HighJitterPenaltyMultiplier:   5.0,
 		LowJitterThreshold:            0.30,

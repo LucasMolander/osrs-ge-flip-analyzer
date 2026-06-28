@@ -1,17 +1,18 @@
 package main
 
 import (
-"context"
-"fmt"
-"log"
-"os"
-"time"
-"runtime"
+	"context"
+	"fmt"
+	"log"
+	"os"
+	"runtime"
+	"time"
 
-"cloud.google.com/go/profiler"
+	"cloud.google.com/go/profiler"
 
-"github.com/lucasmolander/osrs-ge-flip-analyzer/core"
-"github.com/lucasmolander/osrs-ge-flip-analyzer/web"
+	"github.com/lucasmolander/osrs-ge-flip-analyzer/backend"
+	"github.com/lucasmolander/osrs-ge-flip-analyzer/core"
+	"github.com/lucasmolander/osrs-ge-flip-analyzer/web"
 )
 
 func debugLog(msg string) {
@@ -28,14 +29,14 @@ func main() {
 
 	debugLog("Initializing storage...")
 	var err error
-	
+
 	// Fast timeout for debugging
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	_ = ctx
 
 	debugLog("Calling NewStorage...")
-	core.Store, err = core.NewStorage(isServer)
+	backend.Store, err = backend.NewStorage(isServer)
 	if err != nil {
 		log.Fatalf("Failed to initialize storage: %v", err)
 	}
@@ -66,8 +67,8 @@ func main() {
 			debugLog("Google Cloud Profiler started successfully.")
 		}
 
-		client := core.NewClient("")
-		err := web.StartServer(port, client, 20000000, 10, 50, core.Store, config)
+		client := backend.NewClient("")
+		err := web.StartServer(port, client, 20000000, 10, 50, backend.Store, config)
 		if err != nil {
 			log.Fatalf("Server failed to start: %v", err)
 		}

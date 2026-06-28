@@ -5,32 +5,31 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	httppprof "net/http/pprof"
 	"os"
+	"runtime/pprof"
 	"strings"
 	"sync"
-	httppprof "net/http/pprof"
-	"runtime/pprof"
 
-	"golang.org/x/time/rate"
 	"golang.org/x/net/trace"
+	"golang.org/x/time/rate"
 
+	"github.com/lucasmolander/osrs-ge-flip-analyzer/backend"
 	"github.com/lucasmolander/osrs-ge-flip-analyzer/core"
 )
 
-
-
 // AppServer holds the dependencies for the web server handlers.
 type AppServer struct {
-	Client       *core.OSRSClient
+	Client       *backend.OSRSClient
 	Capital      int64
 	VolThreshold int64
 	Limit        int
-	Store        core.Storage
+	Store        backend.Storage
 	Config       *core.RankingConfig
 }
 
 // StartServer initializes the HTTP handlers and starts listening on the given port.
-func StartServer(port string, client *core.OSRSClient, capital, volThreshold int64, limit int, store core.Storage, config *core.RankingConfig) error {
+func StartServer(port string, client *backend.OSRSClient, capital, volThreshold int64, limit int, store backend.Storage, config *core.RankingConfig) error {
 	app := &AppServer{
 		Client:       client,
 		Capital:      capital,
@@ -44,6 +43,7 @@ func StartServer(port string, client *core.OSRSClient, capital, volThreshold int
 	apiMux := http.NewServeMux()
 	apiMux.HandleFunc("/api/report", app.apiReportHandler)
 	apiMux.HandleFunc("/api/report/status", app.apiReportStatusHandler)
+	apiMux.HandleFunc("/api/market-state", app.apiMarketStateHandler)
 	apiMux.HandleFunc("/api/items", app.apiItemsHandler)
 	apiMux.HandleFunc("/api/sync/prices", app.apiSyncPricesHandler)
 	apiMux.HandleFunc("/api/sync/metadata", app.apiSyncMetadataHandler)
@@ -62,13 +62,13 @@ func StartServer(port string, client *core.OSRSClient, capital, volThreshold int
 	// App-Level Authentication
 	username := os.Getenv("AUTH_USERNAME")
 	password := os.Getenv("AUTH_PASSWORD")
-	
+
 	// Override x/net/trace AuthRequest to allow external traffic.
 	// Since apiMux is already protected by BasicAuthMiddleware, this is safe.
 	trace.AuthRequest = func(req *http.Request) (any, sensitive bool) {
 		return true, true
 	}
-	
+
 	// HTML/RPC Tracing endpoints
 	apiMux.HandleFunc("/debug/requests", trace.Traces)
 	apiMux.HandleFunc("/debug/events", trace.Events)
@@ -93,7 +93,7 @@ func StartServer(port string, client *core.OSRSClient, capital, volThreshold int
 				</html>
 			`))
 		})
-		
+
 		addr := fmt.Sprintf(":%s", port)
 		fmt.Printf("Starting configuration error page on http://localhost:%s\n", port)
 		return http.ListenAndServe(addr, mux)
@@ -106,7 +106,7 @@ func StartServer(port string, client *core.OSRSClient, capital, volThreshold int
 
 	// Main router
 	mux := http.NewServeMux()
-	
+
 	// Cron Endpoint (Unauthenticated by Basic Auth, protected by CRON_SECRET)
 	mux.HandleFunc("/api/internal/cron-tick", app.apiCronTickHandler)
 
@@ -116,6 +116,15 @@ func StartServer(port string, client *core.OSRSClient, capital, volThreshold int
 	// All other /api/ and /debug/ routes are authenticated and rate-limited
 	mux.Handle("/api/", RateLimitMiddleware(labeledAuthApiMux, limiter))
 	mux.Handle("/debug/", RateLimitMiddleware(labeledAuthApiMux, limiter))
+
+	// Custom handler for WASM to serve the pre-compressed gzip file directly
+	// This circumvents Cloud Run's 32MB HTTP response limit since the uncompressed WASM is ~58MB.
+	mux.HandleFunc("/js/analyzer.wasm", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/wasm")
+		w.Header().Set("Content-Encoding", "gzip")
+		w.Header().Set("Cache-Control", "public, max-age=31536000")
+		http.ServeFile(w, r, "./web/frontend/js/analyzer.wasm.gz")
+	})
 
 	// Static File Server for the Vue 3 Frontend (Unauthenticated, but rate-limited, no cache)
 	fs := http.FileServer(http.Dir("./web/frontend"))

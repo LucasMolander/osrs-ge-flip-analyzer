@@ -17,10 +17,10 @@ type LatestPricesResponse struct {
 
 // HourlyVolume represents the 1-hour averages and trading volumes from the /1h endpoint.
 type HourlyVolume struct {
-	AvgHighPrice     *int64 `json:"avgHighPrice"`     // Volume-weighted average high price
-	HighPriceVolume  int64  `json:"highPriceVolume"`  // Quantity traded at high price
-	AvgLowPrice      *int64 `json:"avgLowPrice"`      // Volume-weighted average low price
-	LowPriceVolume   int64  `json:"lowPriceVolume"`   // Quantity traded at low price
+	AvgHighPrice    *int64 `json:"avgHighPrice"`    // Volume-weighted average high price
+	HighPriceVolume int64  `json:"highPriceVolume"` // Quantity traded at high price
+	AvgLowPrice     *int64 `json:"avgLowPrice"`     // Volume-weighted average low price
+	LowPriceVolume  int64  `json:"lowPriceVolume"`  // Quantity traded at low price
 }
 
 // HourlyVolumesResponse represents the payload returned by the /1h endpoint.
@@ -41,6 +41,20 @@ type TimeSeriesDataPoint struct {
 // TimeSeriesResponse represents the payload returned by the /timeseries endpoint.
 type TimeSeriesResponse struct {
 	Data []TimeSeriesDataPoint `json:"data"`
+}
+
+// MarketState aggregates all fetched market data for WASM consumption.
+type MarketState struct {
+	Timestamp int64                     `json:"timestamp"`
+	Prices    map[string]LatestPrice    `json:"prices"`
+	Volumes   map[string]HourlyVolume   `json:"volumes"`
+	Vol5m     map[string]HourlyVolume   `json:"vol_5m"`
+	Vol24h    map[string]HourlyVolume   `json:"vol_24h"`
+	Hist1h    map[string]HourlyVolume   `json:"hist_1h"`
+	Hist24h   map[string]HourlyVolume   `json:"hist_24h"`
+	Hist30d   map[string]HourlyVolume   `json:"hist_30d"`
+	Rolling24 []map[string]HourlyVolume `json:"rolling_24"`
+	Metadata  map[int]ItemMetadata      `json:"metadata"`
 }
 
 // ItemMetadata represents the static properties of an item from the /mapping endpoint.
@@ -82,95 +96,95 @@ type ReportRequest struct {
 
 // ReportItem represents a completed analysis entry for an item, sorted and ranked.
 type ReportItem struct {
-	ID              int     `json:"id"`
-	Name            string  `json:"name"`
-	Icon            string  `json:"icon"`
-	BuyLimit        int     `json:"buy_limit"`
-	High            int64   `json:"high"`
-	Low             int64   `json:"low"`
-	HighMod         int64   `json:"high_mod"`
-	LowMod          int64   `json:"low_mod"`
-	Tax             int64   `json:"tax"`
-	ProfitPerItem   int64   `json:"profit_per_item"`
-	PotentialProfit int64   `json:"potential_profit"`
-	CapitalRequired int64   `json:"capital_required"`
-	ROI             float64 `json:"roi"`
-	Volume          int64   `json:"volume"`
-	Score           float64  `json:"score"`
-	ProfitMultiplier float64 `json:"profit_multiplier"`
-	NudgeMultiplier float64  `json:"nudge_multiplier"`
-	TrendMultiplier float64  `json:"trend_multiplier"`
+	ID                    int      `json:"id"`
+	Name                  string   `json:"name"`
+	Icon                  string   `json:"icon"`
+	BuyLimit              int      `json:"buy_limit"`
+	High                  int64    `json:"high"`
+	Low                   int64    `json:"low"`
+	HighMod               int64    `json:"high_mod"`
+	LowMod                int64    `json:"low_mod"`
+	Tax                   int64    `json:"tax"`
+	ProfitPerItem         int64    `json:"profit_per_item"`
+	PotentialProfit       int64    `json:"potential_profit"`
+	CapitalRequired       int64    `json:"capital_required"`
+	ROI                   float64  `json:"roi"`
+	Volume                int64    `json:"volume"`
+	Score                 float64  `json:"score"`
+	ProfitMultiplier      float64  `json:"profit_multiplier"`
+	NudgeMultiplier       float64  `json:"nudge_multiplier"`
+	TrendMultiplier       float64  `json:"trend_multiplier"`
 	PriceTrendIndicators  []string `json:"price_trend_indicators"`
 	VolumeSpikeIndicators []string `json:"volume_spike_indicators"`
-	IsSink          bool     `json:"is_sink"`
-	GlobalRank      int      `json:"globalRank"`
+	IsSink                bool     `json:"is_sink"`
+	GlobalRank            int      `json:"globalRank"`
 }
 
 // SinkItems is a set of items regulated via the OSRS item sink mechanism.
 var SinkItems = map[string]bool{
-	"Ancestral hat":                      true,
-	"Ancestral robe top":                  true,
-	"Ancestral robe bottom":               true,
-	"Dinh's bulwark":                     true,
-	"Elder maul":                         true,
-	"Kodai wand":                         true,
-	"Arcane prayer scroll":               true,
-	"Dexterous prayer scroll":            true,
-	"Twisted buckler":                    true,
-	"Twisted bow":                        true,
-	"Avernic defender hilt":              true,
-	"Sanguinesti staff":                  true,
-	"Scythe of vitur":                    true,
-	"Elidinis' ward":                     true,
-	"Lightbearer":                        true,
-	"Masori mask (f)":                    true,
-	"Masori body (f)":                    true,
-	"Masori chaps (f)":                    true,
-	"Osmumten's fang":                    true,
-	"Tumeken's shadow":                   true,
-	"Archers ring":                       true,
-	"Berserker ring":                     true,
-	"Armadyl helmet":                     true,
-	"Armadyl chestplate":                 true,
-	"Armadyl chainskirt":                 true,
-	"Bandos chestplate":                  true,
-	"Bandos tassets":                     true,
-	"Bandos boots":                       false, // Explicitly excluded in GWD uniques
-	"Ancient godsword":                   true,
-	"Armadyl godsword":                   true,
-	"Bandos godsword":                    true,
-	"Saradomin godsword":                 true,
-	"Zamorak godsword":                   true,
-	"Torva full helm":                    true,
-	"Torva platebody":                    true,
-	"Torva platelegs":                    true,
-	"Zamorakian spear":                   true,
-	"Zaryte crossbow":                    true,
-	"Zaryte vambraces":                   true,
-	"Inquisitor's great helm":            true,
-	"Inquisitor's hauberk":               true,
-	"Inquisitor's plateskirt":            true,
-	"Inquisitor's mace":                  true,
-	"Nightmare staff":                    true,
-	"Eldritch orb":                       true,
-	"Harmonised orb":                     true,
-	"Volatile orb":                       true,
-	"Abyssal bludgeon":                   true,
-	"Dark bow":                           true,
-	"Dragon hunter lance":                true,
-	"Smoke battlestaff":                  true,
-	"Trident of the seas (uncharged)":    true,
-	"Zenyte shard":                       true,
-	"Uncut zenyte":                       true,
-	"Zenyte":                             true,
-	"Amulet of torture":                  true,
-	"Necklace of anguish":                true,
-	"Ring of suffering":                  true,
-	"Tormented bracelet":                 true,
-	"Arcane spirit shield":               true,
-	"Spectral spirit shield":             true,
-	"Burning claws":                      true,
-	"Dragon pickaxe":                     true,
-	"Dragon warhammer":                   true,
-	"Toxic blowpipe (empty)":             true,
+	"Ancestral hat":                   true,
+	"Ancestral robe top":              true,
+	"Ancestral robe bottom":           true,
+	"Dinh's bulwark":                  true,
+	"Elder maul":                      true,
+	"Kodai wand":                      true,
+	"Arcane prayer scroll":            true,
+	"Dexterous prayer scroll":         true,
+	"Twisted buckler":                 true,
+	"Twisted bow":                     true,
+	"Avernic defender hilt":           true,
+	"Sanguinesti staff":               true,
+	"Scythe of vitur":                 true,
+	"Elidinis' ward":                  true,
+	"Lightbearer":                     true,
+	"Masori mask (f)":                 true,
+	"Masori body (f)":                 true,
+	"Masori chaps (f)":                true,
+	"Osmumten's fang":                 true,
+	"Tumeken's shadow":                true,
+	"Archers ring":                    true,
+	"Berserker ring":                  true,
+	"Armadyl helmet":                  true,
+	"Armadyl chestplate":              true,
+	"Armadyl chainskirt":              true,
+	"Bandos chestplate":               true,
+	"Bandos tassets":                  true,
+	"Bandos boots":                    false, // Explicitly excluded in GWD uniques
+	"Ancient godsword":                true,
+	"Armadyl godsword":                true,
+	"Bandos godsword":                 true,
+	"Saradomin godsword":              true,
+	"Zamorak godsword":                true,
+	"Torva full helm":                 true,
+	"Torva platebody":                 true,
+	"Torva platelegs":                 true,
+	"Zamorakian spear":                true,
+	"Zaryte crossbow":                 true,
+	"Zaryte vambraces":                true,
+	"Inquisitor's great helm":         true,
+	"Inquisitor's hauberk":            true,
+	"Inquisitor's plateskirt":         true,
+	"Inquisitor's mace":               true,
+	"Nightmare staff":                 true,
+	"Eldritch orb":                    true,
+	"Harmonised orb":                  true,
+	"Volatile orb":                    true,
+	"Abyssal bludgeon":                true,
+	"Dark bow":                        true,
+	"Dragon hunter lance":             true,
+	"Smoke battlestaff":               true,
+	"Trident of the seas (uncharged)": true,
+	"Zenyte shard":                    true,
+	"Uncut zenyte":                    true,
+	"Zenyte":                          true,
+	"Amulet of torture":               true,
+	"Necklace of anguish":             true,
+	"Ring of suffering":               true,
+	"Tormented bracelet":              true,
+	"Arcane spirit shield":            true,
+	"Spectral spirit shield":          true,
+	"Burning claws":                   true,
+	"Dragon pickaxe":                  true,
+	"Dragon warhammer":                true,
+	"Toxic blowpipe (empty)":          true,
 }

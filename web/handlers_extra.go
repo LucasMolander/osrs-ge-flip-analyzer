@@ -8,6 +8,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/lucasmolander/osrs-ge-flip-analyzer/backend"
 	"github.com/lucasmolander/osrs-ge-flip-analyzer/core"
 )
 
@@ -24,14 +25,14 @@ func (app *AppServer) apiItemsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	metadataPath, _, err := core.Store.FindLatestFile("item_data", "item_metadata")
+	metadataPath, _, err := backend.Store.FindLatestFile("item_data", "item_metadata")
 	if err != nil {
 		sendError(w, err, "Item metadata not found. Please sync metadata first.", http.StatusNotFound)
 		return
 	}
 
 	var metadata map[int]core.ItemMetadata
-	if err := core.LoadJSON(metadataPath, &metadata); err != nil {
+	if err := backend.LoadJSON(metadataPath, &metadata); err != nil {
 		sendError(w, err, "Failed to load item metadata", http.StatusInternalServerError)
 		return
 	}
@@ -61,7 +62,7 @@ func (app *AppServer) apiSyncPricesHandler(w http.ResponseWriter, r *http.Reques
 	}
 
 	runTs := time.Now().Unix()
-	fetched, err := core.DownloadPrices(r.Context(), app.Client, runTs)
+	fetched, err := backend.DownloadPrices(r.Context(), app.Client, runTs)
 	if err != nil {
 		sendError(w, err, "Failed to sync prices", http.StatusInternalServerError)
 		return
@@ -69,8 +70,8 @@ func (app *AppServer) apiSyncPricesHandler(w http.ResponseWriter, r *http.Reques
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"status": "success",
-		"message": "Prices synced successfully.",
+		"status":           "success",
+		"message":          "Prices synced successfully.",
 		"fetched_new_data": fetched,
 	})
 }
@@ -83,7 +84,7 @@ func (app *AppServer) apiSyncMetadataHandler(w http.ResponseWriter, r *http.Requ
 	}
 
 	timestamp := time.Now().Unix()
-	if _, _, err := core.DownloadMetadata(r.Context(), app.Client, timestamp); err != nil {
+	if _, _, err := backend.DownloadMetadata(r.Context(), app.Client, timestamp); err != nil {
 		sendError(w, err, "Failed to sync metadata", http.StatusInternalServerError)
 		return
 	}
@@ -99,7 +100,7 @@ func (app *AppServer) apiBackupHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	backupJSON, err := core.BackupData()
+	backupJSON, err := backend.BackupData()
 	if err != nil {
 		sendError(w, err, "Failed to create backup", http.StatusInternalServerError)
 		return
@@ -137,7 +138,7 @@ func (app *AppServer) apiRestoreHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if err := core.RestoreData(backupJSON); err != nil {
+	if err := backend.RestoreData(backupJSON); err != nil {
 		sendError(w, err, "Failed to restore data", http.StatusInternalServerError)
 		return
 	}

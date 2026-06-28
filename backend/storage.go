@@ -1,6 +1,7 @@
-package core
+package backend
 
 import (
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -22,6 +23,7 @@ type Storage interface {
 	Read(path string, target interface{}) error
 	ReadRaw(path string) ([]byte, error)
 	Write(path string, data interface{}) (string, error)
+	WriteGzip(path string, data interface{}) (string, error)
 	WriteRaw(path string, content []byte) error
 	FindLatestFile(dir, prefix string) (string, int64, error)
 	ListDir(dir string) ([]string, error)
@@ -69,6 +71,28 @@ func (l *LocalStorage) Write(path string, data interface{}) (string, error) {
 	return path, nil
 }
 
+// WriteGzip encodes and writes JSON to a local file, compressed with gzip.
+func (l *LocalStorage) WriteGzip(path string, data interface{}) (string, error) {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return "", fmt.Errorf("failed to create directory %s: %w", dir, err)
+	}
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+	if err != nil {
+		return "", fmt.Errorf("failed to create file %s: %w", path, err)
+	}
+	defer file.Close()
+
+	gz := gzip.NewWriter(file)
+	defer gz.Close()
+
+	encoder := json.NewEncoder(gz)
+	if err := encoder.Encode(data); err != nil {
+		return "", fmt.Errorf("failed to encode JSON to gzip file %s: %w", path, err)
+	}
+	return path, nil
+}
+
 // WriteRaw writes raw bytes to a local file.
 func (l *LocalStorage) WriteRaw(path string, content []byte) error {
 	dir := filepath.Dir(path)
@@ -88,9 +112,57 @@ func (l *LocalStorage) WriteRaw(path string, content []byte) error {
 	return err
 }
 
+func searchPrefixLatestLocal(dir, prefix string) (string, int64, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return "", 0, fmt.Errorf("failed to read directory %s: %w", dir, err)
+	}
+
+	var latestPath string
+	var latestTime int64
+	pattern := prefix + "_"
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if len(name) > len(pattern)+5 && name[:len(pattern)] == pattern && name[len(name)-5:] == ".json" {
+			var ts int64
+			_, err := fmt.Sscanf(name[len(pattern):len(name)-5], "%d", &ts)
+			if err == nil && ts > latestTime {
+				latestTime = ts
+				latestPath = fmt.Sprintf("%s/%s", dir, name)
+			}
+		}
+	}
+
+	if latestPath == "" {
+		return "", 0, fmt.Errorf("no files found matching %s/%s*.json", dir, prefix)
+	}
+
+	return latestPath, latestTime, nil
+}
+
 // FindLatestFile locates the latest file matching the pattern in the local directory.
 func (l *LocalStorage) FindLatestFile(dir, prefix string) (string, int64, error) {
-	return FindLatestFile(dir, prefix)
+	now := time.Now().UTC()
+	for i := 0; i < 7; i++ {
+		t := now.AddDate(0, 0, -i)
+		dateDir := fmt.Sprintf("%s/%04d/%02d/%02d", dir, t.Year(), int(t.Month()), t.Day())
+		path, ts, err := searchPrefixLatestLocal(dateDir, prefix)
+		if err == nil {
+			return path, ts, nil
+		}
+	}
+
+	// Fallback to legacy root directory
+	path, ts, err := searchPrefixLatestLocal(dir, prefix)
+	if err == nil {
+		return path, ts, nil
+	}
+
+	return "", 0, fmt.Errorf("no files found matching %s in date dirs or legacy root", prefix)
 }
 
 // ListDir lists all non-directory files in a local directory.
@@ -172,6 +244,34 @@ func (g *GCSStorage) Write(path string, data interface{}) (string, error) {
 	return fmt.Sprintf("gs://%s/%s", g.bucketName, path), nil
 }
 
+// WriteGzip encodes and writes JSON to a GCS object with Content-Encoding: gzip.
+func (g *GCSStorage) WriteGzip(path string, data interface{}) (string, error) {
+	ctx := context.Background()
+	// Usually market_state_latest.json will overwrite existing, so we don't enforce DoesNotExist here
+	wc := g.client.Bucket(g.bucketName).Object(path).NewWriter(ctx)
+	wc.ContentType = "application/json"
+	wc.ContentEncoding = "gzip"
+	// Optional: Set Cache-Control so the browser doesn't aggressively cache the state
+	wc.CacheControl = "public, max-age=60"
+
+	gz := gzip.NewWriter(wc)
+
+	encoder := json.NewEncoder(gz)
+	if err := encoder.Encode(data); err != nil {
+		gz.Close()
+		wc.Close()
+		return "", fmt.Errorf("failed to encode JSON to GCS gzip object %s: %w", path, err)
+	}
+	if err := gz.Close(); err != nil {
+		wc.Close()
+		return "", fmt.Errorf("failed to flush gzip writer for %s: %w", path, err)
+	}
+	if err := wc.Close(); err != nil {
+		return "", fmt.Errorf("failed to flush GCS object %s: %w", path, err)
+	}
+	return fmt.Sprintf("gs://%s/%s", g.bucketName, path), nil
+}
+
 // WriteRaw writes raw bytes to a GCS object.
 func (g *GCSStorage) WriteRaw(path string, content []byte) error {
 	ctx := context.Background()
@@ -236,14 +336,14 @@ func (g *GCSStorage) FindLatestFile(dir, prefix string) (string, int64, error) {
 			return path, ts, nil
 		}
 	}
-	
+
 	// Fallback to legacy root directory
 	queryPrefix := fmt.Sprintf("%s/%s_", dir, prefix)
 	path, ts, err := g.searchPrefixLatest(queryPrefix)
 	if err == nil {
 		return path, ts, nil
 	}
-	
+
 	return "", 0, fmt.Errorf("no GCS objects found matching %s in date dirs or legacy %s", prefix, queryPrefix)
 }
 
@@ -284,7 +384,7 @@ func NewStorage(isServer bool) (Storage, error) {
 		ctx := context.Background()
 		return NewGCSStorage(ctx, bucketName)
 	}
-	
+
 	// CLI mode always uses local storage
 	return &LocalStorage{}, nil
 }

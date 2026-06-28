@@ -3,12 +3,13 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/lucasmolander/osrs-ge-flip-analyzer/core"
 	"time"
+
+	"github.com/lucasmolander/osrs-ge-flip-analyzer/backend"
 )
 
 func main() {
-	client := core.NewClient("osrs-ge-flip-analyzer-test")
+	client := backend.NewClient("osrs-ge-flip-analyzer-test")
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -32,7 +33,7 @@ func main() {
 		}
 		fmt.Printf("Success! Sample item %s: %+v\n", firstKey, latest[firstKey])
 	}
-	
+
 	fmt.Println("\n--- Testing /5m ---")
 	ts, m5, err := client.Fetch5mVolumes(ctx)
 	if err != nil {

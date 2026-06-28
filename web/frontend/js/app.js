@@ -270,7 +270,7 @@ createApp({
             
             // Reload initial data
             fetchItemDict()
-            fetchReport()
+            calculateScores()
         }
 
         const logout = () => {
@@ -434,7 +434,134 @@ createApp({
             }
         }
 
+        let wasmReady = ref(false)
+
+        const initWasm = async () => {
+            try {
+                // Fetch the version hash
+                const versionRes = await fetch('/js/wasm_version.json')
+                const versionData = await versionRes.json()
+                const currentHash = versionData.hash
+                const storedHash = localStorage.getItem('wasm_hash')
+
+                const cache = await caches.open('wasm-cache')
+                let response = await cache.match('/js/analyzer.wasm')
+
+                if (!response || currentHash !== storedHash) {
+                    console.log('Downloading new WASM binary...')
+                    response = await fetch('/js/analyzer.wasm')
+                    await cache.put('/js/analyzer.wasm', response.clone())
+                    localStorage.setItem('wasm_hash', currentHash)
+                } else {
+                    console.log('Loaded WASM from Cache API')
+                }
+
+                const go = new Go()
+                const wasmBytes = await response.arrayBuffer()
+                const { instance } = await WebAssembly.instantiate(wasmBytes, go.importObject)
+                
+                // Run the Go program in the background
+                go.run(instance)
+                
+                // Now parse user data for nudges
+                loadUserDataToWasm()
+                wasmReady.value = true
+                console.log('WASM fully initialized')
+            } catch (err) {
+                console.error('Failed to initialize WASM', err)
+                showError('Failed to initialize local computation engine: ' + err.message)
+            }
+        }
+
+        const loadUserDataToWasm = () => {
+            if (typeof GoLoadUserData === 'undefined') return
+            const payload = {
+                flips: flipsHistory.value,
+                failed_sells: failedSellsHistory.value,
+                config: localConfig.value
+            }
+            GoLoadUserData(JSON.stringify(payload))
+        }
+
         let lastReportPayloadStr = ""
+
+        const calculateScores = () => {
+            if (!wasmReady.value) return
+            // We use GoCalculateScores which uses the preloaded global market state and global nudges.
+            // We just pass config and filter (which we handle locally in JS, but let's pass "" to get all items).
+            const configStr = JSON.stringify(localConfig.value)
+            console.time('WASM: calculateScores')
+            const resultStr = GoCalculateScores(configStr, "")
+            console.timeEnd('WASM: calculateScores')
+            
+            console.time('UI: jsonParseWASM')
+            const rawItems = JSON.parse(resultStr)
+            console.timeEnd('UI: jsonParseWASM')
+            
+            lastReportPayloadStr = JSON.stringify({
+                config: localConfig.value,
+                flips: flipsHistory.value,
+                failed_sells: failedSellsHistory.value
+            })
+            
+            items.value = rawItems
+            updateDisplayedItems()
+        }
+
+        let calculateDebounce = null;
+        // Watch for config slider changes to dynamically recalculate scores using WASM
+        Vue.watch(localConfig, (newVal) => {
+            if (newVal) {
+                localStorage.setItem('ge_analyzer_config', JSON.stringify(newVal))
+                if (wasmReady.value) {
+                    // Update user nudges if needed (optional if config changes affect it)
+                    loadUserDataToWasm()
+                    
+                    if (calculateDebounce) clearTimeout(calculateDebounce)
+                    calculateDebounce = setTimeout(() => {
+                        calculateScores()
+                    }, 50)
+                }
+            }
+        }, { deep: true })
+        
+        Vue.watch([flipsHistory, failedSellsHistory], () => {
+            if (wasmReady.value) {
+                loadUserDataToWasm()
+                calculateScores()
+            }
+        }, { deep: true })
+
+        const fetchMarketData = async () => {
+            if (!isAuthenticated.value) return
+            loading.value = true
+            console.log('🔄 Fetching Market State from GCS...');
+            console.time('Network: fetchMarketData');
+            try {
+                // /api/market-state will 302 redirect to the public GCS URL which has Content-Encoding: gzip
+                const response = await fetchWithAuth('/api/market-state')
+                if (!response.ok) throw new Error("Failed to fetch market data")
+                
+                const jsonText = await response.text()
+                console.timeEnd('Network: fetchMarketData');
+                
+                if (typeof GoLoadMarketData !== 'undefined') {
+                    console.time('WASM: GoLoadMarketData');
+                    GoLoadMarketData(jsonText)
+                    console.timeEnd('WASM: GoLoadMarketData');
+                    
+                    calculateScores()
+                }
+                
+                startPolling()
+            } catch (err) {
+                if (err.message !== "unauthorized") {
+                    showError(err.message, err.stackTrace)
+                }
+            } finally {
+                loading.value = false
+            }
+        }
 
         const autoRefresh = ref(true)
         const autoRefreshPulsing = ref(false)
@@ -455,7 +582,7 @@ createApp({
                             console.log('📡 SSE/Polling: Update signal received from server!');
                             console.log('🔄 Auto-refreshing table...');
                             autoRefreshPulsing.value = true
-                            await fetchReport();
+                            await fetchMarketData();
                             lastKnownUpdateTs = statusData.lastUpdate;
                             setTimeout(() => { autoRefreshPulsing.value = false }, 1500)
                         }
@@ -464,38 +591,6 @@ createApp({
                     }
                 }
             }, 60000)
-        }
-
-        const fetchReport = async () => {
-            if (!isAuthenticated.value) return
-            loading.value = true
-            console.log('🔄 Fetching GE market report...');
-            console.time('Network: fetchReport');
-            try {
-                const payload = {
-                    config: localConfig.value,
-                    flips: flipsHistory.value,
-                    failed_sells: failedSellsHistory.value
-                }
-                const response = await fetchWithAuth('/api/report', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                })
-                console.time('UI: jsonParse');
-                const rawItems = await response.json() || []
-                console.timeEnd('UI: jsonParse');
-                items.value = rawItems
-                lastReportPayloadStr = JSON.stringify(payload)
-                startPolling() // Ensure polling is running once authenticated
-            } catch (err) {
-                if (err.message !== "unauthorized") {
-                    showError(err.message, err.stackTrace)
-                }
-            } finally {
-                loading.value = false
-                console.timeEnd('Network: fetchReport');
-            }
         }
 
         const fetchDefaultConfig = async () => {
@@ -513,7 +608,7 @@ createApp({
             if (defaults) {
                 localConfig.value = defaults
                 showSuccess("Reset to system defaults!")
-                if (currentTab.value === 'report') fetchReport()
+                if (currentTab.value === 'report') calculateScores()
             }
         }
 
@@ -545,7 +640,7 @@ createApp({
                     if (data.flips) flipsHistory.value = data.flips
                     if (data.failed_sells) failedSellsHistory.value = data.failed_sells
                     showSuccess("Profile imported successfully!")
-                    if (currentTab.value === 'report') fetchReport()
+                    if (currentTab.value === 'report') calculateScores()
                 } catch (err) {
                     showError("Failed to parse import file", err.stack)
                 }
@@ -576,7 +671,7 @@ createApp({
                 const payloadChanged = currentPayloadStr !== lastReportPayloadStr
 
                 if (dataChanged || payloadChanged) {
-                    if (currentTab.value === 'report') await fetchReport()
+                    if (currentTab.value === 'report') calculateScores()
                 }
             } catch (err) {
                 if (err.message !== "unauthorized") showError(err.message, err.stackTrace)
@@ -617,7 +712,7 @@ createApp({
                 
                 // Refresh data if needed
                 fetchItemDict()
-                fetchReport()
+                calculateScores()
                 fetchHistory()
             } catch (err) {
                 if (err.message !== "unauthorized") showError(err.message, err.stackTrace)
@@ -670,7 +765,7 @@ createApp({
                 note: flipForm.value.note
             })
             closeModals()
-            fetchReport()
+            calculateScores()
         }
 
         const submitFailedBuy = async () => {
@@ -680,7 +775,7 @@ createApp({
                 note: failedForm.value.note
             })
             closeModals()
-            fetchReport()
+            calculateScores()
         }
 
         // Manual Entry Forms
@@ -714,7 +809,7 @@ createApp({
         // Tab watcher
         Vue.watch(currentTab, (newTab) => {
             window.location.hash = newTab
-            if (newTab === 'report') fetchReport()
+            if (newTab === 'report') calculateScores()
             if (newTab === 'history') fetchHistory()
         })
         
@@ -759,7 +854,8 @@ createApp({
                 }
 
                 await fetchItemDict()
-                await fetchReport()
+                await initWasm()
+                await fetchMarketData()
             }
             console.timeEnd('UI: appMount');
         })
@@ -773,7 +869,7 @@ createApp({
             isDarkMode, toggleTheme,
             showFlipModal, showFailedModal, selectedItem,
             flipForm, failedForm, manualFlipForm, manualFailedForm,
-            formatNumber, formatPrice, formatCapital, formatProfit, getGoldColorClass, getPricesLink, formatDate, fetchReport, fetchHistory, syncPrices, syncMetadata,
+            formatNumber, formatPrice, formatCapital, formatProfit, getGoldColorClass, getPricesLink, formatDate, fetchHistory, syncPrices, syncMetadata,
             handleFileUpload, restoreBackup, recordFlip, recordFailedBuy, closeModals,
             submitFlip, submitFailedBuy, submitManualFlip, submitManualFailedBuy,
             resetToDefaults, exportUserFile, importUserFile,

@@ -26,8 +26,8 @@ var GlobalProfiler = &PhaseProfiler{
 	active: make(map[string]time.Time),
 }
 
-// Start marks the beginning of a profiling phase. 
-// It returns the start time, which can be passed to Stop() for concurrent safety, 
+// Start marks the beginning of a profiling phase.
+// It returns the start time, which can be passed to Stop() for concurrent safety,
 // though the phaseName is sufficient if the phase is strictly sequential.
 func (p *PhaseProfiler) Start(phaseName string) time.Time {
 	now := time.Now()

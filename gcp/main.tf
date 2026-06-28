@@ -108,6 +108,20 @@ resource "google_storage_bucket" "database" {
       type = "Delete"
     }
   }
+
+  cors {
+    origin          = ["*"]
+    method          = ["GET", "HEAD", "OPTIONS"]
+    response_header = ["*"]
+    max_age_seconds = 3600
+  }
+}
+
+# Make bucket publicly readable for WASM frontend
+resource "google_storage_bucket_iam_member" "public_reader" {
+  bucket = google_storage_bucket.database.name
+  role   = "roles/storage.objectViewer"
+  member = "allUsers"
 }
 
 # --- Cloud Run Service Account ---

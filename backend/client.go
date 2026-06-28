@@ -1,4 +1,4 @@
-package core
+package backend
 
 import (
 	"context"
@@ -6,14 +6,16 @@ import (
 	"fmt"
 	"net/http"
 	"time"
+
+	"github.com/lucasmolander/osrs-ge-flip-analyzer/core"
 )
 
 const (
-	baseURLLatest  = "https://prices.runescape.wiki/api/v1/osrs/latest"
-	baseURL5m      = "https://prices.runescape.wiki/api/v1/osrs/5m"
-	baseURL1h      = "https://prices.runescape.wiki/api/v1/osrs/1h"
-	baseURL24h     = "https://prices.runescape.wiki/api/v1/osrs/24h"
-	baseURLMapping = "https://prices.runescape.wiki/api/v1/osrs/mapping"
+	baseURLLatest     = "https://prices.runescape.wiki/api/v1/osrs/latest"
+	baseURL5m         = "https://prices.runescape.wiki/api/v1/osrs/5m"
+	baseURL1h         = "https://prices.runescape.wiki/api/v1/osrs/1h"
+	baseURL24h        = "https://prices.runescape.wiki/api/v1/osrs/24h"
+	baseURLMapping    = "https://prices.runescape.wiki/api/v1/osrs/mapping"
 	baseURLTimeSeries = "https://prices.runescape.wiki/api/v1/osrs/timeseries"
 )
 
@@ -64,8 +66,8 @@ func (c *OSRSClient) executeRequest(ctx context.Context, url string, target inte
 }
 
 // FetchLatestPrices retrieves the latest high and low price info for all tradeable items.
-func (c *OSRSClient) FetchLatestPrices(ctx context.Context) (map[string]LatestPrice, error) {
-	var response LatestPricesResponse
+func (c *OSRSClient) FetchLatestPrices(ctx context.Context) (map[string]core.LatestPrice, error) {
+	var response core.LatestPricesResponse
 	if err := c.executeRequest(ctx, baseURLLatest, &response); err != nil {
 		return nil, err
 	}
@@ -74,8 +76,8 @@ func (c *OSRSClient) FetchLatestPrices(ctx context.Context) (map[string]LatestPr
 
 // FetchHourlyVolumes retrieves the 1-hour trading volume and average prices.
 // Returns the Unix timestamp of the 1-hour block and the map of item volumes.
-func (c *OSRSClient) FetchHourlyVolumes(ctx context.Context) (int64, map[string]HourlyVolume, error) {
-	var response HourlyVolumesResponse
+func (c *OSRSClient) FetchHourlyVolumes(ctx context.Context) (int64, map[string]core.HourlyVolume, error) {
+	var response core.HourlyVolumesResponse
 	if err := c.executeRequest(ctx, baseURL1h, &response); err != nil {
 		return 0, nil, err
 	}
@@ -84,8 +86,8 @@ func (c *OSRSClient) FetchHourlyVolumes(ctx context.Context) (int64, map[string]
 
 // Fetch5mVolumes retrieves the 5-minute trading volume and average prices.
 // Returns the Unix timestamp of the 5-minute block and the map of item volumes.
-func (c *OSRSClient) Fetch5mVolumes(ctx context.Context) (int64, map[string]HourlyVolume, error) {
-	var response HourlyVolumesResponse
+func (c *OSRSClient) Fetch5mVolumes(ctx context.Context) (int64, map[string]core.HourlyVolume, error) {
+	var response core.HourlyVolumesResponse
 	if err := c.executeRequest(ctx, baseURL5m, &response); err != nil {
 		return 0, nil, err
 	}
@@ -94,8 +96,8 @@ func (c *OSRSClient) Fetch5mVolumes(ctx context.Context) (int64, map[string]Hour
 
 // Fetch24hVolumes retrieves the 24-hour trading volume and average prices.
 // Returns the Unix timestamp of the 24-hour block and the map of item volumes.
-func (c *OSRSClient) Fetch24hVolumes(ctx context.Context) (int64, map[string]HourlyVolume, error) {
-	var response HourlyVolumesResponse
+func (c *OSRSClient) Fetch24hVolumes(ctx context.Context) (int64, map[string]core.HourlyVolume, error) {
+	var response core.HourlyVolumesResponse
 	if err := c.executeRequest(ctx, baseURL24h, &response); err != nil {
 		return 0, nil, err
 	}
@@ -103,8 +105,8 @@ func (c *OSRSClient) Fetch24hVolumes(ctx context.Context) (int64, map[string]Hou
 }
 
 // FetchItemMapping retrieves the static item definitions/metadata (names, limits, alch values).
-func (c *OSRSClient) FetchItemMapping(ctx context.Context) ([]ItemMetadata, error) {
-	var response []ItemMetadata
+func (c *OSRSClient) FetchItemMapping(ctx context.Context) ([]core.ItemMetadata, error) {
+	var response []core.ItemMetadata
 	if err := c.executeRequest(ctx, baseURLMapping, &response); err != nil {
 		return nil, err
 	}
@@ -112,9 +114,9 @@ func (c *OSRSClient) FetchItemMapping(ctx context.Context) ([]ItemMetadata, erro
 }
 
 // FetchHistoricalPrices retrieves the 1-hour average prices and volumes at a specific historical timestamp.
-func (c *OSRSClient) FetchHistoricalPrices(ctx context.Context, timestamp int64) (map[string]HourlyVolume, error) {
+func (c *OSRSClient) FetchHistoricalPrices(ctx context.Context, timestamp int64) (map[string]core.HourlyVolume, error) {
 	url := fmt.Sprintf("%s?timestamp=%d", baseURL1h, timestamp)
-	var response HourlyVolumesResponse
+	var response core.HourlyVolumesResponse
 	if err := c.executeRequest(ctx, url, &response); err != nil {
 		return nil, err
 	}
@@ -122,9 +124,9 @@ func (c *OSRSClient) FetchHistoricalPrices(ctx context.Context, timestamp int64)
 }
 
 // FetchHistorical5m retrieves the 5-minute snapshot at a specific historical timestamp.
-func (c *OSRSClient) FetchHistorical5m(ctx context.Context, timestamp int64) (map[string]HourlyVolume, error) {
+func (c *OSRSClient) FetchHistorical5m(ctx context.Context, timestamp int64) (map[string]core.HourlyVolume, error) {
 	url := fmt.Sprintf("%s?timestamp=%d", baseURL5m, timestamp)
-	var response HourlyVolumesResponse
+	var response core.HourlyVolumesResponse
 	if err := c.executeRequest(ctx, url, &response); err != nil {
 		return nil, err
 	}
@@ -132,9 +134,9 @@ func (c *OSRSClient) FetchHistorical5m(ctx context.Context, timestamp int64) (ma
 }
 
 // FetchLatestPrice retrieves the latest price info for a specific item ID.
-func (c *OSRSClient) FetchLatestPrice(ctx context.Context, id int) (map[string]LatestPrice, error) {
+func (c *OSRSClient) FetchLatestPrice(ctx context.Context, id int) (map[string]core.LatestPrice, error) {
 	url := fmt.Sprintf("%s?id=%d", baseURLLatest, id)
-	var response LatestPricesResponse
+	var response core.LatestPricesResponse
 	if err := c.executeRequest(ctx, url, &response); err != nil {
 		return nil, err
 	}
@@ -143,9 +145,9 @@ func (c *OSRSClient) FetchLatestPrice(ctx context.Context, id int) (map[string]L
 
 // FetchTimeSeries retrieves the high and low prices of an item at a given interval.
 // Valid timesteps are "5m", "1h", "6h", and "24h".
-func (c *OSRSClient) FetchTimeSeries(ctx context.Context, id int, timestep string) ([]TimeSeriesDataPoint, error) {
+func (c *OSRSClient) FetchTimeSeries(ctx context.Context, id int, timestep string) ([]core.TimeSeriesDataPoint, error) {
 	url := fmt.Sprintf("%s?id=%d&timestep=%s", baseURLTimeSeries, id, timestep)
-	var response TimeSeriesResponse
+	var response core.TimeSeriesResponse
 	if err := c.executeRequest(ctx, url, &response); err != nil {
 		return nil, err
 	}

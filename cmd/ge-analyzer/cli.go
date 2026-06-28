@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"flag"
+	"fmt"
 	"log"
 	"os"
 	"strings"
 	"time"
+
+	"github.com/lucasmolander/osrs-ge-flip-analyzer/backend"
 	"github.com/lucasmolander/osrs-ge-flip-analyzer/core"
 	"github.com/lucasmolander/osrs-ge-flip-analyzer/web"
 )
@@ -82,11 +84,11 @@ func handlePricesCommand() {
 	ua := cmd.String("user-agent", "", "Custom User-Agent header for the OSRS Wiki API")
 	cmd.Parse(os.Args[2:])
 
-	client := core.NewClient(*ua)
+	client := backend.NewClient(*ua)
 	timestamp := time.Now().Unix()
 
 	fmt.Println("Fetching and saving latest prices and volumes...")
-	if _, err := core.DownloadPrices(context.Background(), client, timestamp); err != nil {
+	if _, err := backend.DownloadPrices(context.Background(), client, timestamp); err != nil {
 		log.Fatalf("Error downloading prices: %v", err)
 	}
 	fmt.Println("Prices and volumes downloaded successfully.")
@@ -97,11 +99,11 @@ func handleItemMetadataCommand() {
 	ua := cmd.String("user-agent", "", "Custom User-Agent header for the OSRS Wiki API")
 	cmd.Parse(os.Args[2:])
 
-	client := core.NewClient(*ua)
+	client := backend.NewClient(*ua)
 	timestamp := time.Now().Unix()
 
 	fmt.Println("Fetching and saving item metadata...")
-	_, path, err := core.DownloadMetadata(context.Background(), client, timestamp)
+	_, path, err := backend.DownloadMetadata(context.Background(), client, timestamp)
 	if err != nil {
 		log.Fatalf("Error: %v", err)
 	}
@@ -128,13 +130,13 @@ func handleReportCommand() {
 		config = core.DefaultRankingConfig()
 	}
 
-	client := core.NewClient(*ua)
-	reportItems, err := core.RunAnalysis(context.Background(), client, *capital, *volThreshold, *limit, !*skipDownload, filterName, config, nil, nil)
+	client := backend.NewClient(*ua)
+	reportItems, err := backend.RunAnalysis(context.Background(), client, *capital, *volThreshold, *limit, !*skipDownload, filterName, config, nil, nil)
 	if err != nil {
 		log.Fatalf("Analysis failed: %v", err)
 	}
 
-	_, ts, err := core.Store.FindLatestFile("prices", "prices")
+	_, ts, err := backend.Store.FindLatestFile("prices", "prices")
 	if err != nil {
 		log.Fatalf("Error locating latest prices file: %v", err)
 	}
@@ -162,8 +164,8 @@ func handleServeCommand() {
 		config = core.DefaultRankingConfig()
 	}
 
-	client := core.NewClient(*ua)
-	err = web.StartServer(*port, client, *capital, *volThreshold, *limit, core.Store, config)
+	client := backend.NewClient(*ua)
+	err = web.StartServer(*port, client, *capital, *volThreshold, *limit, backend.Store, config)
 	if err != nil {
 		log.Fatalf("Server failed: %v", err)
 	}
@@ -183,7 +185,7 @@ func handleRecordFlipCommand() {
 		cmd.Usage()
 		os.Exit(1)
 	}
-	
+
 	validRatings := map[string]bool{"Meh": true, "Mid": true, "Good": true, "Great": true}
 	if !validRatings[*rating] {
 		fmt.Println("Error: --rating must be Meh, Mid, Good, or Great.")
@@ -209,7 +211,7 @@ func handleRecordFlipCommand() {
 	}
 
 	prefix := fmt.Sprintf("flip_%d", *id)
-	path, err := core.SaveJSON("flips", prefix, ts, record)
+	path, err := backend.SaveJSON("flips", prefix, ts, record)
 	if err != nil {
 		log.Fatalf("Error saving flip record: %v", err)
 	}
@@ -249,7 +251,7 @@ func handleRecordFailedSellCommand() {
 	}
 
 	prefix := fmt.Sprintf("failed_sell_%d", *id)
-	path, err := core.SaveJSON("failed_sells", prefix, ts, record)
+	path, err := backend.SaveJSON("failed_sells", prefix, ts, record)
 	if err != nil {
 		log.Fatalf("Error saving failed buy record: %v", err)
 	}
@@ -262,7 +264,7 @@ func handleBackupCommand() {
 	outputFile := cmd.String("output", "", "Path to save the JSON backup file (optional, defaults to backup_<timestamp>.json)")
 	cmd.Parse(os.Args[2:])
 
-	backupJSON, err := core.BackupData()
+	backupJSON, err := backend.BackupData()
 	if err != nil {
 		log.Fatalf("Error creating backup: %v", err)
 	}
@@ -296,7 +298,7 @@ func handleRestoreCommand() {
 	}
 
 	fmt.Println("Restoring database from backup file...")
-	if err := core.RestoreData(backupJSON); err != nil {
+	if err := backend.RestoreData(backupJSON); err != nil {
 		log.Fatalf("Error restoring backup: %v", err)
 	}
 
@@ -315,7 +317,7 @@ func displayTable(items []core.ReportItem, limit int) {
 	fmt.Printf("\nTop %d Recommended Flips:\n", displayLimit)
 	fmt.Printf("%-4s %-30s %-10s %-10s %-9s %-11s %-15s %-18s %-6s %-7s %-8s %-10s\n",
 		"Rank", "Item Name", "Score", "Pot.Profit", "Profit/ea", "Capital", "Raw Spread", "Adj Spread", "Limit", "ROI", "Vol (hr)", "Trend")
-	
+
 	for i := 0; i < displayLimit; i++ {
 		item := items[i]
 		name := item.Name
@@ -325,7 +327,7 @@ func displayTable(items []core.ReportItem, limit int) {
 		if len(name) > 30 {
 			name = name[:27] + "..."
 		}
-		
+
 		rawSpreadStr := fmt.Sprintf("%s/%s", formatPriceCompact(item.Low), formatPriceCompact(item.High))
 		adjSpreadStr := fmt.Sprintf("%s->%s", formatPriceCompact(item.LowMod), formatPriceCompact(item.HighMod))
 
@@ -366,4 +368,3 @@ func displayTable(items []core.ReportItem, limit int) {
 	}
 	fmt.Println()
 }
-

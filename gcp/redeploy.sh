@@ -77,7 +77,15 @@ fi
 CLOUD_RUN_URL=$(gcloud run services describe "${SERVICE_NAME}" --region="${REGION}" --format="value(status.url)")
 
 echo ""
-echo "Step 6: Verifying deployment..."
+echo "Step 6: Enforcing GCS Bucket Public Access & CORS..."
+echo '[{"origin": ["*"], "method": ["GET", "OPTIONS"], "responseHeader": ["*"], "maxAgeSeconds": 3600}]' > /tmp/cors.json
+gsutil cors set /tmp/cors.json "gs://${GCS_BUCKET_NAME}"
+rm /tmp/cors.json
+gsutil iam ch allUsers:objectViewer "gs://${GCS_BUCKET_NAME}"
+echo "✅ GCS Bucket is configured for public client-side WASM access."
+
+echo ""
+echo "Step 7: Verifying deployment..."
 # The gcloud run deploy command is synchronous and waits for the revision to be ready.
 # However, we will verify the service is serving traffic to be absolutely sure.
 # We will poll for up to 1 minute.

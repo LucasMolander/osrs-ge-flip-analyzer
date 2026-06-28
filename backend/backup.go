@@ -1,4 +1,4 @@
-package core
+package backend
 
 import (
 	"encoding/base64"

@@ -4,69 +4,12 @@ import (
 	"context"
 	"fmt"
 	"math"
-	"os"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 )
 
-// searchPrefixLatest scans a directory and returns the path and timestamp of the latest file matching the prefix.
-func searchPrefixLatest(dir, prefix string) (string, int64, error) {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return "", 0, fmt.Errorf("failed to read directory %s: %w", dir, err)
-	}
-
-	var latestPath string
-	var latestTime int64
-	pattern := prefix + "_"
-
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		name := entry.Name()
-		// Match files like "prefix_1718815709.json"
-		if len(name) > len(pattern)+5 && name[:len(pattern)] == pattern && name[len(name)-5:] == ".json" {
-			var ts int64
-			_, err := fmt.Sscanf(name[len(pattern):len(name)-5], "%d", &ts)
-			if err == nil && ts > latestTime {
-				latestTime = ts
-				latestPath = fmt.Sprintf("%s/%s", dir, name)
-			}
-		}
-	}
-
-	if latestPath == "" {
-		return "", 0, fmt.Errorf("no files found matching %s/%s*.json", dir, prefix)
-	}
-
-	return latestPath, latestTime, nil
-}
-
-// FindLatestFile searches the past 7 days of yyyy/mm/dd directories, falling back to the legacy root.
-func FindLatestFile(dir, prefix string) (string, int64, error) {
-	now := time.Now().UTC()
-	for i := 0; i < 7; i++ {
-		t := now.AddDate(0, 0, -i)
-		dateDir := fmt.Sprintf("%s/%04d/%02d/%02d", dir, t.Year(), int(t.Month()), t.Day())
-		path, ts, err := searchPrefixLatest(dateDir, prefix)
-		if err == nil {
-			return path, ts, nil
-		}
-	}
-
-	// Fallback to legacy root directory
-	path, ts, err := searchPrefixLatest(dir, prefix)
-	if err == nil {
-		return path, ts, nil
-	}
-
-	return "", 0, fmt.Errorf("no files found matching %s in date dirs or legacy %s", prefix, dir)
-}
-
-// formatCommas formats an integer with thousands-separator commas.
 func formatCommas(n int64) string {
 	in := fmt.Sprintf("%d", n)
 	var out []byte
@@ -183,8 +126,6 @@ func calculateRollingStats(vals []float64) OutlierStats {
 	}
 }
 
-
-
 // AnalyzePrices runs the analysis algorithm and returns a sorted slice of ReportItems.
 func AnalyzePrices(
 	ctx context.Context,
@@ -252,8 +193,6 @@ func AnalyzePrices(
 			}
 		}
 
-
-
 		highStats := calculateRollingStats(rollingHighs)
 		if highStats.Valid && highStats.StdDev > 0 {
 			zHigh := (float64(high) - highStats.Mean) / highStats.StdDev
@@ -314,7 +253,7 @@ func AnalyzePrices(
 
 		// Ensure we use rawSpread so it doesn't get blinded by Z-Score clamps
 		if worstSpread < rawSpread {
-			if (rawSpread - worstSpread) >= config.WorstSpreadPenaltyMinGap && !isGoldenMargin {
+			if (rawSpread-worstSpread) >= config.WorstSpreadPenaltyMinGap && !isGoldenMargin {
 				ratio := worstSpread / math.Max(rawSpread, 1.0)
 				penalty := math.Max(0.05, ratio*ratio)
 				outlierTrendMultiplier *= penalty
@@ -442,12 +381,12 @@ func AnalyzePrices(
 		if volData, ok := volumes[fmt.Sprintf("%d", id)]; ok {
 			volume = volData.HighPriceVolume + volData.LowPriceVolume
 		}
-		
+
 		var volume5m int64
 		if volData, ok := vol5m[fmt.Sprintf("%d", id)]; ok {
 			volume5m = volData.HighPriceVolume + volData.LowPriceVolume
 		}
-		
+
 		var volume24h int64
 		if volData, ok := vol24h[fmt.Sprintf("%d", id)]; ok {
 			volume24h = volData.HighPriceVolume + volData.LowPriceVolume
@@ -464,7 +403,7 @@ func AnalyzePrices(
 		// 10. Compute scoring factors
 		potentialProfit := profitPerItem * affordableQty
 		roi := (float64(profitPerItem) / safeLowMod) * 100.0
-		
+
 		// A. Total Profit Multiplier (Piecewise)
 		profitRatio := float64(potentialProfit) / config.TargetProfitBenchmark
 		var profitMultiplier float64
@@ -480,7 +419,7 @@ func AnalyzePrices(
 
 		// B. Bounded ROI Multiplier
 		rawROI := float64(profitPerItem) / safeLowMod
-		roiMultiplier := math.Max(0.50, math.Min(config.ROIRewardCap, rawROI / config.TargetROI))
+		roiMultiplier := math.Max(0.50, math.Min(config.ROIRewardCap, rawROI/config.TargetROI))
 
 		// Volume Penalty Factors:
 		// A. Volume Ratio Factor/Filter:
@@ -489,7 +428,7 @@ func AnalyzePrices(
 		limitVal := math.Max(float64(item.Limit), 1.0)
 		volumeVal := float64(volume)
 		globalRatio := (volumeVal * 4.0) / limitVal
-		
+
 		if globalRatio <= config.VolumeRatioFilterThreshold {
 			// Apply a massive penalty instead of dropping the item completely
 			volumeRatioFactor = 0.001
@@ -612,20 +551,20 @@ func AnalyzePrices(
 		}
 
 		items = append(items, ReportItem{
-			ID:              item.ID,
-			Name:            item.Name,
-			Icon:            item.Icon,
-			BuyLimit:        item.Limit,
-			High:            high,
-			Low:             low,
-			HighMod:         highMod,
-			LowMod:          lowMod,
-			Tax:             tax,
-			ProfitPerItem:   profitPerItem,
-			PotentialProfit: potentialProfit,
-			CapitalRequired: capitalRequired,
-			ROI:             sanitizeFloat(roi),
-			Volume:          volume,
+			ID:                    item.ID,
+			Name:                  item.Name,
+			Icon:                  item.Icon,
+			BuyLimit:              item.Limit,
+			High:                  high,
+			Low:                   low,
+			HighMod:               highMod,
+			LowMod:                lowMod,
+			Tax:                   tax,
+			ProfitPerItem:         profitPerItem,
+			PotentialProfit:       potentialProfit,
+			CapitalRequired:       capitalRequired,
+			ROI:                   sanitizeFloat(roi),
+			Volume:                volume,
 			Score:                 sanitizeFloat(score),
 			ProfitMultiplier:      sanitizeFloat(profitMultiplier),
 			NudgeMultiplier:       sanitizeFloat(nudge),
