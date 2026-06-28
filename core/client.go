@@ -14,6 +14,7 @@ const (
 	baseURL1h      = "https://prices.runescape.wiki/api/v1/osrs/1h"
 	baseURL24h     = "https://prices.runescape.wiki/api/v1/osrs/24h"
 	baseURLMapping = "https://prices.runescape.wiki/api/v1/osrs/mapping"
+	baseURLTimeSeries = "https://prices.runescape.wiki/api/v1/osrs/timeseries"
 )
 
 // OSRSClient handles all communications with the OSRS Wiki Grand Exchange APIs.
@@ -124,6 +125,27 @@ func (c *OSRSClient) FetchHistoricalPrices(ctx context.Context, timestamp int64)
 func (c *OSRSClient) FetchHistorical5m(ctx context.Context, timestamp int64) (map[string]HourlyVolume, error) {
 	url := fmt.Sprintf("%s?timestamp=%d", baseURL5m, timestamp)
 	var response HourlyVolumesResponse
+	if err := c.executeRequest(ctx, url, &response); err != nil {
+		return nil, err
+	}
+	return response.Data, nil
+}
+
+// FetchLatestPrice retrieves the latest price info for a specific item ID.
+func (c *OSRSClient) FetchLatestPrice(ctx context.Context, id int) (map[string]LatestPrice, error) {
+	url := fmt.Sprintf("%s?id=%d", baseURLLatest, id)
+	var response LatestPricesResponse
+	if err := c.executeRequest(ctx, url, &response); err != nil {
+		return nil, err
+	}
+	return response.Data, nil
+}
+
+// FetchTimeSeries retrieves the high and low prices of an item at a given interval.
+// Valid timesteps are "5m", "1h", "6h", and "24h".
+func (c *OSRSClient) FetchTimeSeries(ctx context.Context, id int, timestep string) ([]TimeSeriesDataPoint, error) {
+	url := fmt.Sprintf("%s?id=%d&timestep=%s", baseURLTimeSeries, id, timestep)
+	var response TimeSeriesResponse
 	if err := c.executeRequest(ctx, url, &response); err != nil {
 		return nil, err
 	}

@@ -371,30 +371,32 @@ func AnalyzePrices(
 			meanSpread := sumSpread / float64(length)
 			meanHigh := sumHigh / float64(length)
 
-			avgHighJitter := sumHighJitter / float64(length-1)
-			avgLowJitter := sumLowJitter / float64(length-1)
-			avgRelSpreadJitter := sumRelSpreadJitter / float64(length-1)
-			avgAbsSpreadJitter := sumAbsSpreadJitter / float64(length-1)
+			if length > 1 {
+				avgHighJitter := sumHighJitter / float64(length-1)
+				avgLowJitter := sumLowJitter / float64(length-1)
+				avgRelSpreadJitter := sumRelSpreadJitter / float64(length-1)
+				avgAbsSpreadJitter := sumAbsSpreadJitter / float64(length-1)
 
-			// High Jitter Penalty
-			if avgHighJitter > config.HighJitterThreshold {
-				excess := avgHighJitter - config.HighJitterThreshold
-				outlierTrendMultiplier *= math.Exp(-(excess * config.HighJitterPenaltyMultiplier))
-				priceTrendIndicators = append(priceTrendIndicators, fmt.Sprintf("HJP(%.0f%%)", avgHighJitter*100))
-			}
+				// High Jitter Penalty
+				if avgHighJitter > config.HighJitterThreshold {
+					excess := avgHighJitter - config.HighJitterThreshold
+					outlierTrendMultiplier *= math.Exp(-(excess * config.HighJitterPenaltyMultiplier))
+					priceTrendIndicators = append(priceTrendIndicators, fmt.Sprintf("HJP(%.0f%%)", avgHighJitter*100))
+				}
 
-			// Low Jitter Penalty
-			if avgLowJitter > config.LowJitterThreshold && !isGoldenMargin {
-				excess := avgLowJitter - config.LowJitterThreshold
-				outlierTrendMultiplier *= math.Exp(-(excess * config.LowJitterPenaltyMultiplier))
-				priceTrendIndicators = append(priceTrendIndicators, fmt.Sprintf("LJP(%.0f%%)", avgLowJitter*100))
-			}
+				// Low Jitter Penalty
+				if avgLowJitter > config.LowJitterThreshold && !isGoldenMargin {
+					excess := avgLowJitter - config.LowJitterThreshold
+					outlierTrendMultiplier *= math.Exp(-(excess * config.LowJitterPenaltyMultiplier))
+					priceTrendIndicators = append(priceTrendIndicators, fmt.Sprintf("LJP(%.0f%%)", avgLowJitter*100))
+				}
 
-			// Spread Jitter Penalty
-			if avgRelSpreadJitter > config.SpreadJitterRelThreshold && avgAbsSpreadJitter > config.SpreadJitterAbsThreshold {
-				excess := avgRelSpreadJitter - config.SpreadJitterRelThreshold
-				outlierTrendMultiplier *= math.Exp(-(excess * config.SpreadJitterPenaltyMultiplier))
-				priceTrendIndicators = append(priceTrendIndicators, fmt.Sprintf("SJP(%.0f%%)", avgRelSpreadJitter*100))
+				// Spread Jitter Penalty
+				if avgRelSpreadJitter > config.SpreadJitterRelThreshold && avgAbsSpreadJitter > config.SpreadJitterAbsThreshold {
+					excess := avgRelSpreadJitter - config.SpreadJitterRelThreshold
+					outlierTrendMultiplier *= math.Exp(-(excess * config.SpreadJitterPenaltyMultiplier))
+					priceTrendIndicators = append(priceTrendIndicators, fmt.Sprintf("SJP(%.0f%%)", avgRelSpreadJitter*100))
+				}
 			}
 
 			// Spread Spike Penalty
@@ -596,6 +598,19 @@ func AnalyzePrices(
 			score /= multipliers
 		}
 
+		sanitizeFloat := func(f float64) float64 {
+			if math.IsNaN(f) {
+				return 0.0
+			}
+			if math.IsInf(f, 1) {
+				return math.MaxFloat64
+			}
+			if math.IsInf(f, -1) {
+				return -math.MaxFloat64
+			}
+			return f
+		}
+
 		items = append(items, ReportItem{
 			ID:              item.ID,
 			Name:            item.Name,
@@ -609,12 +624,12 @@ func AnalyzePrices(
 			ProfitPerItem:   profitPerItem,
 			PotentialProfit: potentialProfit,
 			CapitalRequired: capitalRequired,
-			ROI:             roi,
+			ROI:             sanitizeFloat(roi),
 			Volume:          volume,
-			Score:                 score,
-			ProfitMultiplier:      profitMultiplier,
-			NudgeMultiplier:       nudge,
-			TrendMultiplier:       trendMultiplier,
+			Score:                 sanitizeFloat(score),
+			ProfitMultiplier:      sanitizeFloat(profitMultiplier),
+			NudgeMultiplier:       sanitizeFloat(nudge),
+			TrendMultiplier:       sanitizeFloat(trendMultiplier),
 			PriceTrendIndicators:  priceTrendIndicators,
 			VolumeSpikeIndicators: volumeSpikeIndicators,
 			IsSink:                SinkItems[item.Name],

@@ -29,6 +29,20 @@ type HourlyVolumesResponse struct {
 	Data      map[string]HourlyVolume `json:"data"`
 }
 
+// TimeSeriesDataPoint represents a single data point in the /timeseries response.
+type TimeSeriesDataPoint struct {
+	Timestamp       int64  `json:"timestamp"`
+	AvgHighPrice    *int64 `json:"avgHighPrice"`
+	AvgLowPrice     *int64 `json:"avgLowPrice"`
+	HighPriceVolume int64  `json:"highPriceVolume"`
+	LowPriceVolume  int64  `json:"lowPriceVolume"`
+}
+
+// TimeSeriesResponse represents the payload returned by the /timeseries endpoint.
+type TimeSeriesResponse struct {
+	Data []TimeSeriesDataPoint `json:"data"`
+}
+
 // ItemMetadata represents the static properties of an item from the /mapping endpoint.
 type ItemMetadata struct {
 	ID       int    `json:"id"`

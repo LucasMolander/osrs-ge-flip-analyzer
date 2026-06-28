@@ -438,17 +438,30 @@ createApp({
 
         const autoRefresh = ref(true)
         const autoRefreshPulsing = ref(false)
+        let lastKnownUpdateTs = null;
         let pollingInterval = null;
         const startPolling = () => {
             if (pollingInterval) return;
             console.log('🔌 Starting Auto-Refresh polling (60s intervals)...');
-            pollingInterval = setInterval(() => {
+            pollingInterval = setInterval(async () => {
                 if (autoRefresh.value && isAuthenticated.value) {
-                    console.log('🔄 Auto-refreshing table...');
-                    autoRefreshPulsing.value = true
-                    fetchReport().then(() => {
-                        setTimeout(() => { autoRefreshPulsing.value = false }, 1500)
-                    })
+                    try {
+                        const statusRes = await fetchWithAuth('/api/report/status');
+                        const statusData = await statusRes.json();
+                        
+                        if (!lastKnownUpdateTs) {
+                            lastKnownUpdateTs = statusData.lastUpdate;
+                        } else if (statusData.lastUpdate > lastKnownUpdateTs) {
+                            console.log('📡 SSE/Polling: Update signal received from server!');
+                            console.log('🔄 Auto-refreshing table...');
+                            autoRefreshPulsing.value = true
+                            await fetchReport();
+                            lastKnownUpdateTs = statusData.lastUpdate;
+                            setTimeout(() => { autoRefreshPulsing.value = false }, 1500)
+                        }
+                    } catch (e) {
+                        console.error('Failed to check report status', e);
+                    }
                 }
             }, 60000)
         }
