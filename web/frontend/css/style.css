@@ -510,3 +510,20 @@ body {
 .autocomplete-item:hover {
     background: rgba(255, 255, 255, 0.1);
 }
+
+/* Auto-refresh toggle */
+.auto-refresh-btn.active {
+    background: var(--success);
+    color: white;
+    border-color: var(--success);
+}
+
+.auto-refresh-btn.pulsing {
+    animation: flash-white 1.5s;
+}
+
+@keyframes flash-white {
+    0% { background: var(--success); color: white; box-shadow: none; }
+    50% { background: white; color: var(--success); box-shadow: 0 0 15px white; }
+    100% { background: var(--success); color: white; box-shadow: none; }
+}

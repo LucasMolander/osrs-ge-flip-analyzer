@@ -89,6 +89,7 @@ type ReportItem struct {
 	PriceTrendIndicators  []string `json:"price_trend_indicators"`
 	VolumeSpikeIndicators []string `json:"volume_spike_indicators"`
 	IsSink          bool     `json:"is_sink"`
+	GlobalRank      int      `json:"globalRank"`
 }
 
 // SinkItems is a set of items regulated via the OSRS item sink mechanism.

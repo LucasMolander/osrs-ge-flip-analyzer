@@ -26,6 +26,41 @@ func formatCompact(n int64) string {
 	return fmt.Sprintf("%d", n)
 }
 
+// formatCommas formats an int64 with comma separators.
+func formatCommas(n int64) string {
+	in := fmt.Sprintf("%d", n)
+	numOfCommas := (len(in) - 1) / 3
+	out := make([]byte, len(in)+numOfCommas)
+	for i, j, k := len(in)-1, len(out)-1, 0; ; i, j = i-1, j-1 {
+		out[j] = in[i]
+		if i == 0 {
+			break
+		}
+		if k++; k == 3 {
+			j, k = j-1, 0
+			out[j] = ','
+		}
+	}
+	return string(out)
+}
+
+// formatPriceCompact formats price numbers with 3 decimals for values >= 100K.
+func formatPriceCompact(n int64) string {
+	absN := n
+	sign := ""
+	if n < 0 {
+		absN = -n
+		sign = "-"
+	}
+	if absN >= 1_000_000 {
+		return fmt.Sprintf("%s%.3fM", sign, float64(absN)/1_000_000.0)
+	}
+	if absN >= 100_000 {
+		return fmt.Sprintf("%s%.3fK", sign, float64(absN)/1_000.0)
+	}
+	return fmt.Sprintf("%s%s", sign, formatCommas(absN))
+}
+
 func printGeneralUsage() {
 	fmt.Println("OSRS Grand Exchange Flip Analyzer")
 	fmt.Println("Usage:")
@@ -291,8 +326,8 @@ func displayTable(items []core.ReportItem, limit int) {
 			name = name[:27] + "..."
 		}
 		
-		rawSpreadStr := fmt.Sprintf("%s/%s", formatCompact(item.Low), formatCompact(item.High))
-		adjSpreadStr := fmt.Sprintf("%s->%s", formatCompact(item.LowMod), formatCompact(item.HighMod))
+		rawSpreadStr := fmt.Sprintf("%s/%s", formatPriceCompact(item.Low), formatPriceCompact(item.High))
+		adjSpreadStr := fmt.Sprintf("%s->%s", formatPriceCompact(item.LowMod), formatPriceCompact(item.HighMod))
 
 		trendStr := ""
 		if len(item.PriceTrendIndicators) > 0 {

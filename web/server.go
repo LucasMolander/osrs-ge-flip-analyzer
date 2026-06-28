@@ -17,6 +17,8 @@ import (
 	"github.com/lucasmolander/osrs-ge-flip-analyzer/core"
 )
 
+
+
 // AppServer holds the dependencies for the web server handlers.
 type AppServer struct {
 	Client       *core.OSRSClient
@@ -41,6 +43,7 @@ func StartServer(port string, client *core.OSRSClient, capital, volThreshold int
 	// API router wrapped with BasicAuth
 	apiMux := http.NewServeMux()
 	apiMux.HandleFunc("/api/report", app.apiReportHandler)
+	apiMux.HandleFunc("/api/report/status", app.apiReportStatusHandler)
 	apiMux.HandleFunc("/api/items", app.apiItemsHandler)
 	apiMux.HandleFunc("/api/sync/prices", app.apiSyncPricesHandler)
 	apiMux.HandleFunc("/api/sync/metadata", app.apiSyncMetadataHandler)
@@ -114,9 +117,9 @@ func StartServer(port string, client *core.OSRSClient, capital, volThreshold int
 	mux.Handle("/api/", RateLimitMiddleware(labeledAuthApiMux, limiter))
 	mux.Handle("/debug/", RateLimitMiddleware(labeledAuthApiMux, limiter))
 
-	// Static File Server for the Vue 3 Frontend (Unauthenticated, but rate-limited)
+	// Static File Server for the Vue 3 Frontend (Unauthenticated, but rate-limited, no cache)
 	fs := http.FileServer(http.Dir("./web/frontend"))
-	mux.Handle("/", RateLimitMiddleware(fs, limiter))
+	mux.Handle("/", RateLimitMiddleware(NoCacheMiddleware(fs), limiter))
 
 	addr := fmt.Sprintf(":%s", port)
 	fmt.Printf("Starting web dashboard on http://localhost:%s\n", port)
@@ -150,6 +153,16 @@ func PprofLabelMiddleware(next http.Handler) http.Handler {
 			r = r.WithContext(ctx)
 			next.ServeHTTP(w, r)
 		})
+	})
+}
+
+// NoCacheMiddleware prevents the browser from caching static assets.
+func NoCacheMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+		w.Header().Set("Pragma", "no-cache")
+		w.Header().Set("Expires", "0")
+		next.ServeHTTP(w, r)
 	})
 }
 

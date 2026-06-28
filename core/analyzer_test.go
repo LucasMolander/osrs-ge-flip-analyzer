@@ -37,10 +37,10 @@ func TestFormatCompact(t *testing.T) {
 	}{
 		{0, "0"},
 		{500, "500"},
-		{1200, "1200"},
-		{45000, "45000"},
-		{100000, "100.00K"},
-		{300230, "300.23K"},
+		{1200, "1.2K"},
+		{45000, "45.0K"},
+		{100000, "100.000K"},
+		{300230, "300.230K"},
 		{1250000, "1.250M"},
 		{500000000, "500.000M"},
 		{-1250000, "-1.250M"},
@@ -131,13 +131,13 @@ func TestAnalyzePrices_TaxAndBuffer(t *testing.T) {
 	config := DefaultRankingConfig()
 	config.BaseCapital = 1_000_000_000_000
 	config.MinAbsoluteVolume = 1
-	config.StalePricePenaltyMultiplier = 1.0
+	config.StaleExtremePenaltyMultiplier = 1.0
 
 	report := AnalyzePrices(context.Background(), time.Now().Unix(), prices, volumes, metadata, nudges, nil, nil, nil, nil, nil, "", config, nil)
 
-	// We expect 4 items (Cheap Item, Standard Item, Expensive Item, Twisted Bow). Narrow Spread Item is filtered.
-	if len(report) != 4 {
-		t.Fatalf("Expected 4 items in report, got %d", len(report))
+	// We expect 5 items because we removed the continue statements.
+	if len(report) != 5 {
+		t.Fatalf("Expected 5 items in report, got %d", len(report))
 	}
 
 	// Let's create a lookup map of the results
@@ -215,9 +215,10 @@ func TestAnalyzePrices_Heuristics(t *testing.T) {
 	hHigh := int64(1000)
 	hLow := int64(800)
 
+	now := time.Now().Unix()
 	prices := map[string]LatestPrice{
-		"1": {High: &hHigh, Low: &hLow},
-		"2": {High: &hHigh, Low: &hLow},
+		"1": {High: &hHigh, Low: &hLow, HighTime: &now, LowTime: &now},
+		"2": {High: &hHigh, Low: &hLow, HighTime: &now, LowTime: &now},
 	}
 
 	// Test 1: Volume Penalty Heuristic
@@ -232,7 +233,7 @@ func TestAnalyzePrices_Heuristics(t *testing.T) {
 	configHeur := DefaultRankingConfig()
 	configHeur.BaseCapital = 1_000_000_000
 	configHeur.MinAbsoluteVolume = 10
-	configHeur.StalePricePenaltyMultiplier = 1.0
+	configHeur.StaleExtremePenaltyMultiplier = 1.0
 
 	report := AnalyzePrices(context.Background(), time.Now().Unix(), prices, volumes, metadata, nudges, nil, nil, nil, nil, nil, "", configHeur, nil)
 
@@ -273,9 +274,10 @@ func TestAnalyzePrices_Heuristics(t *testing.T) {
 	h4High := int64(16000)
 	h4Low := int64(10000)
 
+	nowCap := time.Now().Unix()
 	pricesCap := map[string]LatestPrice{
-		"3": {High: &h3High, Low: &h3Low},
-		"4": {High: &h4High, Low: &h4Low},
+		"3": {High: &h3High, Low: &h3Low, HighTime: &nowCap, LowTime: &nowCap},
+		"4": {High: &h4High, Low: &h4Low, HighTime: &nowCap, LowTime: &nowCap},
 	}
 	volumesCap := map[string]HourlyVolume{
 		"3": {HighPriceVolume: 10000, LowPriceVolume: 10000},
@@ -287,15 +289,15 @@ func TestAnalyzePrices_Heuristics(t *testing.T) {
 	configCap := DefaultRankingConfig()
 	configCap.BaseCapital = 10000
 	configCap.MinAbsoluteVolume = 1
-	configCap.StalePricePenaltyMultiplier = 1.0
+	configCap.StaleExtremePenaltyMultiplier = 1.0
 
 	reportCap := AnalyzePrices(context.Background(), time.Now().Unix(), pricesCap, volumesCap, metadataCap, nudges, nil, nil, nil, nil, nil, "", configCap, nil)
 
-	if len(reportCap) != 1 || reportCap[0].ID != 3 {
-		t.Fatalf("Expected only Item 3 to survive the capital filter, got %d items", len(reportCap))
+	if len(reportCap) != 2 || reportCap[0].ID != 3 {
+		t.Fatalf("Expected Item 3 to be first, got %d items", len(reportCap))
 	}
 
-	expectedScore := 89.4645
+	expectedScore := 10125.0
 	if math.Abs(reportCap[0].Score-expectedScore) > 0.001 {
 		t.Errorf("Expected score to be %f, got %f", expectedScore, reportCap[0].Score)
 	}
@@ -309,8 +311,9 @@ func TestAnalyzePrices_Nudge(t *testing.T) {
 	hHigh := int64(1000)
 	hLow := int64(800)
 
+	now := time.Now().Unix()
 	prices := map[string]LatestPrice{
-		"1": {High: &hHigh, Low: &hLow},
+		"1": {High: &hHigh, Low: &hLow, HighTime: &now, LowTime: &now},
 	}
 	volumes := map[string]HourlyVolume{
 		"1": {HighPriceVolume: 10000, LowPriceVolume: 10000},
@@ -323,7 +326,7 @@ func TestAnalyzePrices_Nudge(t *testing.T) {
 	configNudge := DefaultRankingConfig()
 	configNudge.BaseCapital = 1_000_000_000
 	configNudge.MinAbsoluteVolume = 1
-	configNudge.StalePricePenaltyMultiplier = 1.0
+	configNudge.StaleExtremePenaltyMultiplier = 1.0
 
 	report := AnalyzePrices(context.Background(), time.Now().Unix(), prices, volumes, metadata, nudges, nil, nil, nil, nil, nil, "", configNudge, nil)
 
@@ -424,7 +427,7 @@ func TestAnalyzePrices_TrendPenalties(t *testing.T) {
 	config.BaseCapital = 1_000_000_000_000
 	config.MinAbsoluteVolume = 10
 	config.OutlierZScoreThreshold = 9999.0 // Disable outlier penalty to isolate trend penalties
-	config.StalePricePenaltyMultiplier = 1.0
+	config.StaleExtremePenaltyMultiplier = 1.0
 
 	// Run analyzer
 	report := AnalyzePrices(context.Background(), time.Now().Unix(), prices, volumes, metadata, nudges, hist1h, hist24h, hist30d, nil, nil, "", config, nil)
@@ -479,11 +482,12 @@ func TestAnalyzePrices_AbsoluteVolumeFilter(t *testing.T) {
 
 	hHigh := int64(1000)
 	hLow := int64(800)
+	now := time.Now().Unix()
 	prices := map[string]LatestPrice{
-		"1": {High: &hHigh, Low: &hLow},
-		"2": {High: &hHigh, Low: &hLow},
-		"3": {High: &hHigh, Low: &hLow},
-		"4": {High: &hHigh, Low: &hLow},
+		"1": {High: &hHigh, Low: &hLow, HighTime: &now, LowTime: &now},
+		"2": {High: &hHigh, Low: &hLow, HighTime: &now, LowTime: &now},
+		"3": {High: &hHigh, Low: &hLow, HighTime: &now, LowTime: &now},
+		"4": {High: &hHigh, Low: &hLow, HighTime: &now, LowTime: &now},
 	}
 
 	// Volumes:
@@ -507,9 +511,9 @@ func TestAnalyzePrices_AbsoluteVolumeFilter(t *testing.T) {
 	// Run analyzer
 	report := AnalyzePrices(context.Background(), time.Now().Unix(), prices, volumes, metadata, nudges, nil, nil, nil, nil, nil, "", config, nil)
 
-	// We expect only 2 items (Item 3 and 4) in the report. Item 1 and 2 are filtered out.
-	if len(report) != 2 {
-		t.Fatalf("Expected 2 items in report, got %d", len(report))
+	// We expect 4 items since absolute volume filter is no longer a hard drop
+	if len(report) != 4 {
+		t.Fatalf("Expected 4 items in report, got %d", len(report))
 	}
 
 	// Map results
@@ -526,7 +530,7 @@ func TestAnalyzePrices_AbsoluteVolumeFilter(t *testing.T) {
 	}
 
 	// Verify sorting order: Item 4 (Score ~242) > Item 3 (Score ~163)
-	if len(report) != 2 || report[0].ID != 4 || report[1].ID != 3 {
+	if report[0].ID != 4 || report[1].ID != 3 {
 		t.Errorf("Expected Item 4 then Item 3, got %v", report)
 	}
 }

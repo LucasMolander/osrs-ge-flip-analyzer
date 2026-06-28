@@ -7,6 +7,7 @@ import (
 	"os"
 	"runtime/debug"
 
+
 	"github.com/lucasmolander/osrs-ge-flip-analyzer/core"
 )
 
@@ -68,17 +69,27 @@ func (app *AppServer) apiReportHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Limit to the top 50
-	limit := app.Limit
-	if len(flips) < limit {
-		limit = len(flips)
-	}
-	topFlips := flips[:limit]
-
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(topFlips); err != nil {
+	if err := json.NewEncoder(w).Encode(flips); err != nil {
 		fmt.Printf("Error encoding JSON response: %v\n", err)
 	}
+}
+
+// apiReportStatusHandler returns the timestamp of the latest cached prices file.
+func (app *AppServer) apiReportStatusHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		sendError(w, nil, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	_, ts, err := app.Store.FindLatestFile("prices", "prices")
+	if err != nil {
+		sendError(w, err, "Failed to get latest price timestamp", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]int64{"lastUpdate": ts})
 }
 
 // apiCronTickHandler is triggered by Cloud Scheduler every minute.
@@ -107,6 +118,8 @@ func (app *AppServer) apiCronTickHandler(w http.ResponseWriter, r *http.Request)
 	}
 
 	fmt.Println("[Cron] Market data fetch and report generation complete.")
+
+
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)

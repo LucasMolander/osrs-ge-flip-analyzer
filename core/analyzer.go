@@ -6,6 +6,7 @@ import (
 	"math"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -94,8 +95,49 @@ func formatCompact(n int64) string {
 		absN = -n
 		sign = "-"
 	}
+
 	if absN >= 1_000_000 {
 		return fmt.Sprintf("%s%.3fM", sign, float64(absN)/1_000_000.0)
+	}
+	if absN >= 100_000 {
+		return fmt.Sprintf("%s%.3fK", sign, float64(absN)/1_000.0)
+	}
+	if absN >= 1_000 {
+		return fmt.Sprintf("%s%.1fK", sign, float64(absN)/1_000.0)
+	}
+	return fmt.Sprintf("%s%d", sign, absN)
+}
+
+// formatPriceCompact formats price numbers with 3 decimals for values >= 100K.
+func formatPriceCompact(n int64) string {
+	absN := n
+	sign := ""
+	if n < 0 {
+		absN = -n
+		sign = "-"
+	}
+	if absN >= 1_000_000 {
+		return fmt.Sprintf("%s%.3fM", sign, float64(absN)/1_000_000.0)
+	}
+	if absN >= 100_000 {
+		return fmt.Sprintf("%s%.3fK", sign, float64(absN)/1_000.0)
+	}
+	return fmt.Sprintf("%s%s", sign, formatCommas(absN))
+}
+
+func formatCapitalCompact(n int64) string {
+	absN := n
+	sign := ""
+	if n < 0 {
+		absN = -n
+		sign = "-"
+	}
+
+	if absN >= 10_000_000 {
+		return fmt.Sprintf("%s%.1fM", sign, float64(absN)/1_000_000.0)
+	}
+	if absN >= 1_000_000 {
+		return fmt.Sprintf("%s%.2fM", sign, float64(absN)/1_000_000.0)
 	}
 	if absN >= 100_000 {
 		return fmt.Sprintf("%s%.2fK", sign, float64(absN)/1_000.0)
@@ -141,76 +183,7 @@ func calculateRollingStats(vals []float64) OutlierStats {
 	}
 }
 
-// calculateMidpointVolatility calculates the average absolute percentage change of the midpoint between consecutive steps,
-// capped at 10% per step, with a denominator floor of 100gp to prevent penny-stock volatility skewing.
-func calculateMidpointVolatility(highs, lows []float64) float64 {
-	length := len(highs)
-	if len(lows) < length {
-		length = len(lows)
-	}
-	if length < 2 {
-		return 0.0
-	}
-	var sumPctChange float64
-	for i := 1; i < length; i++ {
-		// Index 0 is newest, so i is older and i-1 is newer
-		midOld := (highs[i] + lows[i]) / 2.0
-		midNew := (highs[i-1] + lows[i-1]) / 2.0
 
-		// 1. Enforce a minimum denominator of 100 gp
-		safeDenominator := math.Max(midOld, 100.0)
-
-		// 2. Divide by the OLDER tick
-		stepVariation := math.Abs(midNew-midOld) / safeDenominator
-
-		// 3. Clamp the variation to max 10% per step
-		cappedStep := math.Min(stepVariation, 0.10)
-		sumPctChange += cappedStep
-	}
-	return sumPctChange / float64(length-1)
-}
-
-// calculateSpreadJitterAndSpike calculates the average absolute percentage change of the spread between consecutive steps,
-// and the ratio of the current spread to the historical mean spread over the given window.
-func calculateSpreadJitterAndSpike(highs, lows []float64, currentSpread float64) (jitter float64, spikeRatio float64, meanSpread float64, meanHigh float64) {
-	length := len(highs)
-	if len(lows) < length {
-		length = len(lows)
-	}
-	if length < 2 {
-		return 0.0, 0.0, 0.0, 0.0
-	}
-
-	var sumSpread float64
-	var sumPctChange float64
-	var sumHigh float64
-	for i := 1; i < length; i++ {
-		spreadOld := highs[i] - lows[i]
-		spreadNew := highs[i-1] - lows[i-1]
-		sumSpread += spreadOld
-		sumHigh += highs[i]
-
-		// 1. Enforce a minimum denominator of 10 gp
-		safeSpread := math.Max(spreadOld, 10.0)
-
-		// 2. Divide by the OLDER tick
-		stepVariation := math.Abs(spreadNew-spreadOld) / safeSpread
-
-		// 3. Clamp the variation to max 50% per step
-		cappedStep := math.Min(stepVariation, 0.50)
-		sumPctChange += cappedStep
-	}
-
-	// Add the newest spread to the mean sum
-	sumSpread += highs[0] - lows[0]
-	sumHigh += highs[0]
-	meanSpread = sumSpread / float64(length)
-	meanHigh = sumHigh / float64(length)
-	
-	jitter = sumPctChange / float64(length-1)
-	spikeRatio = currentSpread / math.Max(meanSpread, 1.0)
-	return jitter, spikeRatio, meanSpread, meanHigh
-}
 
 // AnalyzePrices runs the analysis algorithm and returns a sorted slice of ReportItems.
 func AnalyzePrices(
@@ -279,11 +252,13 @@ func AnalyzePrices(
 			}
 		}
 
+
+
 		highStats := calculateRollingStats(rollingHighs)
 		if highStats.Valid && highStats.StdDev > 0 {
 			zHigh := (float64(high) - highStats.Mean) / highStats.StdDev
 			if zHigh > config.OutlierZScoreThreshold {
-				safeHighPrice := int64(highStats.Mean + (config.OutlierZScoreThreshold * highStats.StdDev))
+				safeHighPrice := int64(rollingHighs[0])
 				if high > safeHighPrice {
 					high = safeHighPrice
 					priceTrendIndicators = append(priceTrendIndicators, fmt.Sprintf("HC(%.1f)", zHigh))
@@ -320,48 +295,118 @@ func AnalyzePrices(
 			hourLows = append(hourLows, rollingLows[i])
 		}
 
-		midpointVol := calculateMidpointVolatility(hourHighs, hourLows)
-
-		if midpointVol > config.VolatilityThresholdPercent {
-			excessVol := midpointVol - config.VolatilityThresholdPercent
-			// 4. Use safe exponential decay
-			penalty := math.Exp(-(excessVol * config.VolatilityPenaltyMultiplier))
-			outlierTrendMultiplier *= penalty
-			priceTrendIndicators = append(priceTrendIndicators, fmt.Sprintf("JP(%.0f%%)", midpointVol*100))
-		}
-
 		spread := float64(high - low)
 		rawSpread := rawHigh - float64(low)
-		
+
+		worstSpread := math.MaxFloat64
+		for i := 0; i < len(hourHighs) && i < len(hourLows) && i < 12; i++ {
+			tickSpread := hourHighs[i] - hourLows[i]
+			// Only consider valid, positive spreads
+			if tickSpread >= 0 && tickSpread < worstSpread {
+				worstSpread = tickSpread
+			}
+		}
+
+		// Fallback if no valid history
+		if worstSpread == math.MaxFloat64 {
+			worstSpread = rawSpread
+		}
+
+		// Ensure we use rawSpread so it doesn't get blinded by Z-Score clamps
+		if worstSpread < rawSpread {
+			if (rawSpread - worstSpread) >= config.WorstSpreadPenaltyMinGap && !isGoldenMargin {
+				ratio := worstSpread / math.Max(rawSpread, 1.0)
+				penalty := math.Max(0.05, ratio*ratio)
+				outlierTrendMultiplier *= penalty
+				priceTrendIndicators = append(priceTrendIndicators, fmt.Sprintf("WSP(%.2f)", penalty))
+			}
+		}
+
 		if len(hourHighs) >= 2 && len(hourLows) >= 2 {
-			spreadJitter, spreadSpike, meanSpread, meanHigh := calculateSpreadJitterAndSpike(hourHighs, hourLows, rawSpread)
+			// 1. Determine baseline spread
+			avgSpread24h := 0.0
+			idStr := strconv.Itoa(item.ID)
+			if h24, ok := hist24h[idStr]; ok && h24.AvgHighPrice != nil && h24.AvgLowPrice != nil {
+				avgSpread24h = float64(*h24.AvgHighPrice - *h24.AvgLowPrice)
+			} else if h1, ok := hist1h[idStr]; ok && h1.AvgHighPrice != nil && h1.AvgLowPrice != nil {
+				avgSpread24h = float64(*h1.AvgHighPrice - *h1.AvgLowPrice)
+			} else {
+				avgSpread24h = rawSpread
+			}
+			safeDenom := math.Max(avgSpread24h, 2.0)
 
-			if spreadJitter > config.SpreadJitterHighThreshold {
-				excessJitter := spreadJitter - config.SpreadJitterHighThreshold
-				penalty := math.Exp(-(excessJitter * config.SpreadJitterPenaltyMultiplier))
-				outlierTrendMultiplier *= penalty
-				priceTrendIndicators = append(priceTrendIndicators, fmt.Sprintf("SJP(%.0f%%)", spreadJitter*100))
-			} else if spreadJitter < config.SpreadJitterLowThreshold {
-				// Linear scaling reward: Max reward at 0 jitter, 1.0 at threshold
-				denom := math.Max(config.SpreadJitterLowThreshold, 0.001)
-				scale := (config.SpreadJitterLowThreshold - spreadJitter) / denom
-				reward := 1.0 + (config.SpreadJitterRewardMultiplier-1.0)*scale
-				outlierTrendMultiplier *= reward
-				priceTrendIndicators = append(priceTrendIndicators, fmt.Sprintf("SS(%.0f%%)", spreadJitter*100))
+			var sumHighJitter, sumLowJitter, sumRelSpreadJitter, sumAbsSpreadJitter float64
+			var sumSpread, sumHigh float64
+			length := len(hourHighs)
+			if len(hourLows) < length {
+				length = len(hourLows)
 			}
 
-			if spreadSpike > config.SpreadSpikeThreshold && rawHigh > meanHigh && (rawSpread-meanSpread) > 5.0 && !isGoldenMargin {
-				excessSpike := spreadSpike - config.SpreadSpikeThreshold
-				penalty := math.Exp(-(excessSpike * config.SpreadSpikePenaltyMultiplier))
-				outlierTrendMultiplier *= penalty
-				priceTrendIndicators = append(priceTrendIndicators, fmt.Sprintf("SSP(%.1fx)", spreadSpike))
+			for i := 1; i < length; i++ {
+				highOld := hourHighs[i]
+				highNew := hourHighs[i-1]
+				lowOld := hourLows[i]
+				lowNew := hourLows[i-1]
+				spreadOld := highOld - lowOld
+				spreadNew := highNew - lowNew
+
+				// High & Low Jitter
+				highStepVar := math.Min(math.Abs(highNew-highOld)/safeDenom, 1.0)
+				lowStepVar := math.Min(math.Abs(lowNew-lowOld)/safeDenom, 1.0)
+				sumHighJitter += highStepVar
+				sumLowJitter += lowStepVar
+
+				// Spread Jitter
+				safeSpread := math.Max(spreadOld, 2.0)
+				relStep := math.Min(math.Abs(spreadNew-spreadOld)/safeSpread, 1.0)
+				absStep := math.Abs(spreadNew - spreadOld)
+				sumRelSpreadJitter += relStep
+				sumAbsSpreadJitter += absStep
+
+				sumSpread += spreadOld
+				sumHigh += highOld
+			}
+			sumSpread += hourHighs[0] - hourLows[0]
+			sumHigh += hourHighs[0]
+			meanSpread := sumSpread / float64(length)
+			meanHigh := sumHigh / float64(length)
+
+			avgHighJitter := sumHighJitter / float64(length-1)
+			avgLowJitter := sumLowJitter / float64(length-1)
+			avgRelSpreadJitter := sumRelSpreadJitter / float64(length-1)
+			avgAbsSpreadJitter := sumAbsSpreadJitter / float64(length-1)
+
+			// High Jitter Penalty
+			if avgHighJitter > config.HighJitterThreshold {
+				excess := avgHighJitter - config.HighJitterThreshold
+				outlierTrendMultiplier *= math.Exp(-(excess * config.HighJitterPenaltyMultiplier))
+				priceTrendIndicators = append(priceTrendIndicators, fmt.Sprintf("HJP(%.0f%%)", avgHighJitter*100))
+			}
+
+			// Low Jitter Penalty
+			if avgLowJitter > config.LowJitterThreshold && !isGoldenMargin {
+				excess := avgLowJitter - config.LowJitterThreshold
+				outlierTrendMultiplier *= math.Exp(-(excess * config.LowJitterPenaltyMultiplier))
+				priceTrendIndicators = append(priceTrendIndicators, fmt.Sprintf("LJP(%.0f%%)", avgLowJitter*100))
+			}
+
+			// Spread Jitter Penalty
+			if avgRelSpreadJitter > config.SpreadJitterRelThreshold && avgAbsSpreadJitter > config.SpreadJitterAbsThreshold {
+				excess := avgRelSpreadJitter - config.SpreadJitterRelThreshold
+				outlierTrendMultiplier *= math.Exp(-(excess * config.SpreadJitterPenaltyMultiplier))
+				priceTrendIndicators = append(priceTrendIndicators, fmt.Sprintf("SJP(%.0f%%)", avgRelSpreadJitter*100))
+			}
+
+			// Spread Spike Penalty
+			spikeRatio := rawSpread / math.Max(meanSpread, 1.0)
+			if spikeRatio > config.SpreadSpikeThreshold && rawHigh > meanHigh && (rawSpread-meanSpread) >= 5.0 && !isGoldenMargin {
+				excess := spikeRatio - config.SpreadSpikeThreshold
+				outlierTrendMultiplier *= math.Exp(-(excess * config.SpreadSpikePenaltyMultiplier))
+				priceTrendIndicators = append(priceTrendIndicators, fmt.Sprintf("SSP(%.1fx)", spikeRatio))
 			}
 		}
 
-		// 3. Skip items with zero or negative spreads
-		if spread <= 0 && !isTarget {
-			continue
-		}
+		// 3. (Removed continue for negative spread so user can search all items)
 
 		// 4. Calculate competitive spread buffer (max(5, 10% of spread))
 		buffer := int64(spread / 10)
@@ -376,10 +421,7 @@ func AnalyzePrices(
 			lowMod = low
 		}
 
-		// 5. Skip if buffer completely closes the spread
-		if highMod <= lowMod && !isTarget {
-			continue
-		}
+		// 5. (Removed continue for zero profit buffer so user can search all items)
 
 		// 6. Calculate tax (default 2% floor division, capped at 5M gp, 0 tax if under 50 gp)
 		tax := int64(0)
@@ -390,11 +432,8 @@ func AnalyzePrices(
 			}
 		}
 
-		// 7. Calculate after-tax profit per item
+		// 7. (Removed continue for negative profit so user can search all items)
 		profitPerItem := highMod - tax - lowMod
-		if profitPerItem <= 0 && !isTarget {
-			continue
-		}
 
 		// 8. Calculate volumes (sum of buy and sell hourly volume)
 		var volume int64
@@ -412,18 +451,11 @@ func AnalyzePrices(
 			volume24h = volData.HighPriceVolume + volData.LowPriceVolume
 		}
 
-		// 9. Affordable limit based on Base Capital
+		// 9. Capital Required (assume full GE limit as requested by user)
 		safeLowMod := math.Max(float64(lowMod), 1.0)
-		affordableQty := int64(math.Floor(float64(config.BaseCapital) / safeLowMod))
-		if affordableQty > int64(item.Limit) {
-			affordableQty = int64(item.Limit)
-		}
+		affordableQty := int64(item.Limit)
 		if affordableQty <= 0 {
-			if isTarget {
-				affordableQty = 1
-			} else {
-				continue
-			}
+			affordableQty = 1
 		}
 		capitalRequired := lowMod * affordableQty
 
@@ -456,8 +488,9 @@ func AnalyzePrices(
 		volumeVal := float64(volume)
 		globalRatio := (volumeVal * 4.0) / limitVal
 		
-		if globalRatio <= config.VolumeRatioFilterThreshold && !isTarget {
-			continue // Filtered out completely by global volume ratio!
+		if globalRatio <= config.VolumeRatioFilterThreshold {
+			// Apply a massive penalty instead of dropping the item completely
+			volumeRatioFactor = 0.001
 		} else if globalRatio < 1.0 {
 			penalty := (1.0 - globalRatio) / (1.0 - config.VolumeRatioFilterThreshold)
 			if penalty < 0 {
@@ -474,8 +507,9 @@ func AnalyzePrices(
 		// - If Volume >= 100: 1.0 (no penalty)
 		absoluteVolumeFactor := 1.0
 		minVol := float64(config.MinAbsoluteVolume)
-		if volumeVal <= minVol && !isTarget {
-			continue // Filtered out by absolute volume!
+		if volumeVal <= minVol {
+			// Apply a massive penalty instead of dropping the item completely
+			absoluteVolumeFactor = 0.001
 		} else if volumeVal < 100 {
 			penalty := (100.0 - volumeVal) / (100.0 - minVol)
 			if penalty < 0 {
@@ -538,11 +572,17 @@ func AnalyzePrices(
 
 		trendMultiplier *= outlierTrendMultiplier
 
-		// Stale Price Penalty
-		thresholdSeconds := int64(config.StalePriceThresholdMinutes * 60)
+		// Stale Price Penalty (Liquidity-Adjusted)
+		avgHourlyVol := math.Max(float64(volume24h)/24.0, 1.0)
+		eti := 60.0 / avgHourlyVol
+
+		dynamicLimitMins := config.StaleBaseGraceMinutes + (eti * config.StaleETIMultiplier)
+		dynamicLimitMins = math.Min(dynamicLimitMins, config.StaleMaxGraceMinutes)
+		thresholdSeconds := int64(dynamicLimitMins * 60.0)
+
 		if price.HighTime == nil || price.LowTime == nil || (runTs-*price.HighTime) > thresholdSeconds || (runTs-*price.LowTime) > thresholdSeconds {
-			trendMultiplier *= config.StalePricePenaltyMultiplier
-			priceTrendIndicators = append(priceTrendIndicators, "STALE")
+			trendMultiplier *= config.StaleExtremePenaltyMultiplier
+			priceTrendIndicators = append(priceTrendIndicators, fmt.Sprintf("STALE(>%.0fm)", dynamicLimitMins))
 		}
 
 		// Final Score Calculation
@@ -589,6 +629,10 @@ func AnalyzePrices(
 		return items[i].PotentialProfit > items[j].PotentialProfit
 	})
 
+	for i := range items {
+		items[i].GlobalRank = i + 1
+	}
+
 	return items
 }
 
@@ -626,8 +670,8 @@ func GenerateMarkdownReport(items []ReportItem, timestamp int64, capThreshold, v
 			nameStr = "**" + item.Name + "** `[SINK]`"
 		}
 
-		rawSpreadStr := fmt.Sprintf("%s / %s", formatCompact(item.Low), formatCompact(item.High))
-		adjSpreadStr := fmt.Sprintf("%s $\\to$ %s", formatCompact(item.LowMod), formatCompact(item.HighMod))
+		rawSpreadStr := fmt.Sprintf("%s / %s", formatPriceCompact(item.Low), formatPriceCompact(item.High))
+		adjSpreadStr := fmt.Sprintf("%s $\\to$ %s", formatPriceCompact(item.LowMod), formatPriceCompact(item.HighMod))
 
 		nudgeStr := ""
 		if item.NudgeMultiplier != 1.0 {

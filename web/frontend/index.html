@@ -7,9 +7,9 @@
     <!-- Modern Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=JetBrains+Mono&display=swap" rel="stylesheet">
     <!-- Vue 3 via CDN -->
-    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
     <!-- Custom CSS -->
-    <link rel="stylesheet" href="/css/style.css?v=15">
+    <link rel="stylesheet" href="/css/style.css?v=20">
     <style>
         .form-row {
             display: flex;
@@ -25,6 +25,24 @@
         .form-row .form-group input {
             width: 100%;
             max-width: 120px;
+        }
+        
+        @keyframes flash-white {
+            0% {
+                box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.9);
+                background-color: #ffffff !important;
+                color: #2c3e50 !important;
+            }
+            20% {
+                background-color: #ffffff !important;
+                color: #2c3e50 !important;
+            }
+            100% {
+                box-shadow: 0 0 0 15px rgba(255, 255, 255, 0);
+            }
+        }
+        .btn-pulse {
+            animation: flash-white 1.0s ease-out !important;
         }
     </style>
 </head>
@@ -88,10 +106,16 @@
             <div v-show="currentTab === 'report'">
                 <div class="tab-header">
                     <h2>Live Arbitrage Opportunities</h2>
-                    <button @click="syncPrices" class="btn btn-primary" :disabled="loading">
-                        <span v-if="loading">Scanning Market...</span>
-                        <span v-else>↻ Refresh Report</span>
-                    </button>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <button @click="autoRefresh = !autoRefresh" class="btn auto-refresh-btn" :class="{ 'active': autoRefresh, 'pulsing': autoRefreshPulsing }" title="Toggle Auto-Refresh">
+                            Auto Refresh
+                        </button>
+                        <button @click="syncPrices" class="btn btn-primary" :disabled="loading">
+                            <span v-if="loading">Scanning...</span>
+                            <span v-else>↻ Refresh</span>
+                        </button>
+                        <input type="text" v-model="searchInput" @input="onSearchInput" placeholder="Search items..." class="form-control" style="max-width: 200px;">
+                    </div>
                 </div>
                 
                 <div v-if="loading && items.length === 0" class="loading-state">
@@ -103,7 +127,7 @@
                     <table class="flip-table">
                         <thead>
                             <tr>
-                                <th>Rank</th>
+                                <th @click="sortBy('globalRank')" class="sortable">Rank <span v-show="sortConfig.key === 'globalRank'">{{ sortConfig.direction === 'asc' ? '▲' : '▼' }}</span></th>
                                 <th @click="sortBy('name')" class="sortable">Item Name <span v-show="sortConfig.key === 'name'">{{ sortConfig.direction === 'asc' ? '▲' : '▼' }}</span></th>
                                 <th @click="sortBy('score')" class="sortable">Score <span v-show="sortConfig.key === 'score'">{{ sortConfig.direction === 'asc' ? '▲' : '▼' }}</span></th>
                                 <th @click="sortBy('potential_profit')" class="sortable">Profit <span v-show="sortConfig.key === 'potential_profit'">{{ sortConfig.direction === 'asc' ? '▲' : '▼' }}</span></th>
@@ -122,8 +146,8 @@
                             </tr>
                         </thead>
                         <tbody>
-                            <tr v-for="(item, index) in sortedItems" :key="item.id" :class="{'is-sink': item.is_sink}">
-                                <td>#{{ index + 1 }}</td>
+                            <tr v-for="(item, index) in displayedItems" :key="item.id" :class="{'is-sink': item.is_sink}">
+                                <td>#{{ item.globalRank }}</td>
                                 <td class="item-name">
                                     <a :href="getPricesLink(item.id)" target="_blank">
                                         <div class="item-icon-wrapper">
@@ -136,11 +160,11 @@
                                 <td class="score">{{ Math.round(item.score) }}</td>
                                 <td :class="['profit', 'positive', getGoldColorClass(item.potential_profit)]">{{ formatProfit(item.potential_profit) }}</td>
                                 <td :class="['profit', getGoldColorClass(item.profit_per_item)]">{{ formatNumber(item.profit_per_item) }}</td>
-                                <td :class="['capital', getGoldColorClass(item.capital_required)]">{{ formatNumber(item.capital_required) }}</td>
-                                <td :class="['spread', getGoldColorClass(item.low)]">{{ formatNumber(item.low) }}</td>
-                                <td :class="['spread', getGoldColorClass(item.low_mod)]">{{ formatNumber(item.low_mod) }}</td>
-                                <td :class="['spread', getGoldColorClass(item.high_mod)]">{{ formatNumber(item.high_mod) }}</td>
-                                <td :class="['spread', getGoldColorClass(item.high)]">{{ formatNumber(item.high) }}</td>
+                                <td :class="['capital', getGoldColorClass(item.capital_required)]">{{ formatCapital(item.capital_required) }}</td>
+                                <td :class="['spread', getGoldColorClass(item.low)]">{{ formatPrice(item.low) }}</td>
+                                <td :class="['spread', getGoldColorClass(item.low_mod)]">{{ formatPrice(item.low_mod) }}</td>
+                                <td :class="['spread', getGoldColorClass(item.high_mod)]">{{ formatPrice(item.high_mod) }}</td>
+                                <td :class="['spread', getGoldColorClass(item.high)]">{{ formatPrice(item.high) }}</td>
                                 <td class="roi">{{ item.roi.toFixed(1) }}%</td>
                                 <td>{{ formatNumber(item.buy_limit) }}</td>
                                 <td>{{ formatNumber(item.volume) }}</td>
@@ -157,6 +181,23 @@
                             </tr>
                         </tbody>
                     </table>
+                </div>
+                
+                <div v-if="items.length > 0 && !loading" class="pagination-controls" style="display: flex; justify-content: space-between; align-items: center; margin-top: 15px; background: rgba(0, 0, 0, 0.2); padding: 10px; border-radius: 8px;">
+                    <div>
+                        <label for="itemsPerPage">Items per page: </label>
+                        <select id="itemsPerPage" v-model.number="itemsPerPage" class="form-control" style="display: inline-block; width: auto; margin-left: 10px;">
+                            <option :value="25">25</option>
+                            <option :value="50">50</option>
+                            <option :value="100">100</option>
+                            <option :value="200">200</option>
+                        </select>
+                    </div>
+                    <div>
+                        <button @click="currentPage--" :disabled="currentPage <= 1" class="btn btn-secondary btn-sm">Previous</button>
+                        <span style="margin: 0 15px; font-weight: bold;">Page {{ currentPage }} of {{ totalPages }}</span>
+                        <button @click="currentPage++" :disabled="currentPage >= totalPages" class="btn btn-secondary btn-sm">Next</button>
+                    </div>
                 </div>
 
                 <div v-else-if="!loading && items.length === 0" class="empty-state">
@@ -431,12 +472,20 @@
                                     <input type="number" step="0.01" v-model.number="localConfig.outlier_penalty_multiplier">
                                 </div>
                                 <div class="form-group">
-                                    <label>Step Vol (%)</label>
-                                    <input type="number" step="1" v-model.number="volatilityThresholdPercentUI">
+                                    <label>High Jitter (%)</label>
+                                    <input type="number" step="1" v-model.number="highJitterPercent">
                                 </div>
                                 <div class="form-group">
-                                    <label>Vol Penalty</label>
-                                    <input type="number" step="0.01" v-model.number="localConfig.volatility_penalty_multiplier">
+                                    <label>High Pen</label>
+                                    <input type="number" step="0.01" v-model.number="localConfig.high_jitter_penalty_multiplier">
+                                </div>
+                                <div class="form-group">
+                                    <label>Low Jitter (%)</label>
+                                    <input type="number" step="1" v-model.number="lowJitterPercent">
+                                </div>
+                                <div class="form-group">
+                                    <label>Low Pen</label>
+                                    <input type="number" step="0.01" v-model.number="localConfig.low_jitter_penalty_multiplier">
                                 </div>
                             </div>
                         </div>
@@ -461,20 +510,16 @@
                             <p class="text-sm">Rewards solid margins, penalizes massive whipsaws in the spread.</p>
                             <div class="form-row">
                                 <div class="form-group">
-                                    <label>Jitter High (%)</label>
-                                    <input type="number" step="1" v-model.number="spreadJitterHighPercent">
+                                    <label>Jitter Rel (%)</label>
+                                    <input type="number" step="1" v-model.number="spreadJitterRelPercent">
                                 </div>
                                 <div class="form-group">
-                                    <label>Jitter Low (%)</label>
-                                    <input type="number" step="1" v-model.number="spreadJitterLowPercent">
+                                    <label>Jitter Abs (GP)</label>
+                                    <input type="number" step="1" v-model.number="localConfig.spread_jitter_abs_threshold">
                                 </div>
                                 <div class="form-group">
                                     <label>Penalty Mult</label>
                                     <input type="number" step="0.1" v-model.number="localConfig.spread_jitter_penalty_multiplier">
-                                </div>
-                                <div class="form-group">
-                                    <label>Reward Mult</label>
-                                    <input type="number" step="0.01" v-model.number="localConfig.spread_jitter_reward_multiplier">
                                 </div>
                             </div>
                             <div class="form-row">
@@ -539,6 +584,6 @@
     </div>
 
     <!-- Custom Vue App Logic -->
-    <script src="/js/app.js?v=9"></script>
+    <script src="/js/app.js?v=23"></script>
 </body>
 </html>

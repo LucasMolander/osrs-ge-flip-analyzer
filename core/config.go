@@ -52,23 +52,27 @@ type RankingConfig struct {
 	VolumeSpike5mMultiplier  float64 `json:"volume_spike_5m_multiplier"`  // Reward for sudden 5m volume spike (e.g. 1.50)
 	VolumeSpike24hMultiplier float64 `json:"volume_spike_24h_multiplier"` // Reward for sudden 1h volume relative to 24h (e.g. 1.20)
 
-	// Price Outlier & Volatility Penalties
+	// Price Outlier Penalties
 	OutlierZScoreThreshold      float64 `json:"outlier_z_score_threshold"`     // e.g. 2.0
 	OutlierPenaltyMultiplier    float64 `json:"outlier_penalty_multiplier"`    // e.g. 0.5
-	VolatilityThresholdPercent  float64 `json:"volatility_threshold_percent"`  // e.g. 0.05
-	VolatilityPenaltyMultiplier float64 `json:"volatility_penalty_multiplier"` // e.g. 15.0
 
-	// Spread Jitter Penalties and Rewards
-	SpreadJitterHighThreshold     float64 `json:"spread_jitter_high_threshold"`     // e.g. 0.50
-	SpreadJitterLowThreshold      float64 `json:"spread_jitter_low_threshold"`      // e.g. 0.30
-	SpreadJitterPenaltyMultiplier float64 `json:"spread_jitter_penalty_multiplier"` // e.g. 10.0
-	SpreadJitterRewardMultiplier  float64 `json:"spread_jitter_reward_multiplier"`  // e.g. 1.20
+	// Jitter & Spike Penalties
+	HighJitterThreshold           float64 `json:"high_jitter_threshold"`
+	HighJitterPenaltyMultiplier   float64 `json:"high_jitter_penalty_multiplier"`
+	LowJitterThreshold            float64 `json:"low_jitter_threshold"`
+	LowJitterPenaltyMultiplier    float64 `json:"low_jitter_penalty_multiplier"`
+	SpreadJitterRelThreshold      float64 `json:"spread_jitter_rel_threshold"`
+	SpreadJitterAbsThreshold      float64 `json:"spread_jitter_abs_threshold"`
+	SpreadJitterPenaltyMultiplier float64 `json:"spread_jitter_penalty_multiplier"`
 	SpreadSpikeThreshold          float64 `json:"spread_spike_threshold"`           // e.g. 2.0
 	SpreadSpikePenaltyMultiplier  float64 `json:"spread_spike_penalty_multiplier"`  // e.g. 2.0
 
 	// Stale Data Penalties
-	StalePriceThresholdMinutes  float64 `json:"stale_price_threshold_minutes"`  // e.g. 5.0
-	StalePricePenaltyMultiplier float64 `json:"stale_price_penalty_multiplier"` // e.g. 0.1
+	StaleBaseGraceMinutes         float64 `json:"stale_base_grace_minutes"`
+	StaleETIMultiplier            float64 `json:"stale_eti_multiplier"`
+	StaleMaxGraceMinutes          float64 `json:"stale_max_grace_minutes"`
+	StaleExtremePenaltyMultiplier float64 `json:"stale_extreme_penalty_multiplier"`
+	WorstSpreadPenaltyMinGap      float64 `json:"worst_spread_penalty_min_gap"`     // e.g. 5.0
 }
 
 // DefaultRankingConfig returns a configuration struct matching the original hardcoded values.
@@ -98,18 +102,22 @@ func DefaultRankingConfig() *RankingConfig {
 		PriceTrendPenalty24h:      0.90,
 		VolumeSpike5mMultiplier:     1.50,
 		VolumeSpike24hMultiplier:      1.20,
-		OutlierZScoreThreshold:        2.0,
-		OutlierPenaltyMultiplier:      0.5,
-		VolatilityThresholdPercent:    0.05,
-		VolatilityPenaltyMultiplier:   15.0,
-		SpreadJitterHighThreshold:     0.50,
-		SpreadJitterLowThreshold:      0.30,
-		SpreadJitterPenaltyMultiplier: 10.0,
-		SpreadJitterRewardMultiplier:  1.20,
+		OutlierZScoreThreshold:      2.0,
+		OutlierPenaltyMultiplier:    0.5,
+		HighJitterThreshold:           0.30,
+		HighJitterPenaltyMultiplier:   5.0,
+		LowJitterThreshold:            0.30,
+		LowJitterPenaltyMultiplier:    5.0,
+		SpreadJitterRelThreshold:      0.20,
+		SpreadJitterAbsThreshold:      50.0,
+		SpreadJitterPenaltyMultiplier: 5.0,
 		SpreadSpikeThreshold:          2.0,
 		SpreadSpikePenaltyMultiplier:  2.0,
-		StalePriceThresholdMinutes:    5.0,
-		StalePricePenaltyMultiplier:   0.1,
+		StaleBaseGraceMinutes:         10.0,
+		StaleETIMultiplier:            2.0,
+		StaleMaxGraceMinutes:          240.0,
+		StaleExtremePenaltyMultiplier: 0.05,
+		WorstSpreadPenaltyMinGap:      5.0,
 	}
 }
 

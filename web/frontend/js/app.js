@@ -115,7 +115,15 @@ createApp({
 
         // Sorting state
         const sortConfig = ref({ key: null, direction: 'default' })
-
+        
+        const searchInput = ref('')
+        const searchToken = ref(0)
+        const displayedItems = ref([])
+        
+        // Pagination state
+        const currentPage = ref(1)
+        const itemsPerPage = ref(50)
+        const totalPages = ref(1)
 
         const sortBy = (key) => {
             if (sortConfig.value.key === key) {
@@ -133,49 +141,99 @@ createApp({
             }
         }
 
-        const sortedItems = Vue.computed(() => {
-            if (!sortConfig.value.key || sortConfig.value.direction === 'default') {
-                return items.value
-            }
+        const updateDisplayedItems = () => {
+            const currentToken = ++searchToken.value;
             
-            return [...items.value].sort((a, b) => {
-                let valA = a[sortConfig.value.key]
-                let valB = b[sortConfig.value.key]
+            // Yield to the event loop so typing remains fast and non-blocking
+            setTimeout(() => {
+                if (currentToken !== searchToken.value) return;
                 
-                // Handle missing values
-                if (valA === undefined || valA === null) valA = ''
-                if (valB === undefined || valB === null) valB = ''
-
-                // String comparison
-                if (typeof valA === 'string' && typeof valB === 'string') {
-                    return sortConfig.value.direction === 'asc' 
-                        ? valA.localeCompare(valB) 
-                        : valB.localeCompare(valA)
+                console.time('UI: updateDisplayedItems (filter + sort)');
+                let result = items.value;
+                const term = searchInput.value.trim().toLowerCase();
+                
+                if (term !== '') {
+                    result = result.filter(item => item.name.toLowerCase().includes(term));
                 }
+                
+                if (sortConfig.value.key && sortConfig.value.direction !== 'default') {
+                    result = [...result].sort((a, b) => {
+                        let valA = a[sortConfig.value.key]
+                        let valB = b[sortConfig.value.key]
+                        if (valA === undefined || valA === null) valA = ''
+                        if (valB === undefined || valB === null) valB = ''
+                        if (typeof valA === 'string' && typeof valB === 'string') {
+                            return sortConfig.value.direction === 'asc' 
+                                ? valA.localeCompare(valB) 
+                                : valB.localeCompare(valA)
+                        }
+                        return sortConfig.value.direction === 'asc' 
+                            ? valA - valB 
+                            : valB - valA
+                    })
+                }
+                
+                totalPages.value = Math.ceil(result.length / itemsPerPage.value) || 1
+                if (currentPage.value > totalPages.value) {
+                    currentPage.value = totalPages.value
+                }
+                if (currentPage.value < 1) {
+                    currentPage.value = 1
+                }
+                
+                const startIndex = (currentPage.value - 1) * itemsPerPage.value;
+                const endIndex = startIndex + itemsPerPage.value;
+                displayedItems.value = result.slice(startIndex, endIndex);
+                console.timeEnd('UI: updateDisplayedItems (filter + sort)');
+            }, 0);
+        }
 
-                // Numeric comparison
-                return sortConfig.value.direction === 'asc' 
-                    ? valA - valB 
-                    : valB - valA
-            })
-        })
+        const updateURLParams = () => {
+            const url = new URL(window.location)
+            url.searchParams.set('page', currentPage.value)
+            url.searchParams.set('limit', itemsPerPage.value)
+            if (sortConfig.value.key) {
+                url.searchParams.set('sort', sortConfig.value.key)
+                url.searchParams.set('dir', sortConfig.value.direction)
+            } else {
+                url.searchParams.delete('sort')
+                url.searchParams.delete('dir')
+            }
+            if (searchInput.value.trim()) {
+                url.searchParams.set('q', searchInput.value.trim())
+            } else {
+                url.searchParams.delete('q')
+            }
+            window.history.replaceState({}, '', url)
+        }
+
+        const onSearchInput = () => {
+            currentPage.value = 1
+            updateURLParams()
+            updateDisplayedItems()
+        }
+
+        Vue.watch([items, sortConfig, currentPage, itemsPerPage], () => {
+            updateURLParams()
+            updateDisplayedItems()
+        }, { deep: true })
 
         // Percentage computed properties for UI binding
         const targetRoiPercent = computed({
             get: () => localConfig.value ? Math.round(localConfig.value.target_roi * 100) : 0,
             set: (val) => { if (localConfig.value) localConfig.value.target_roi = val / 100.0; }
         })
-        const volatilityThresholdPercentUI = computed({
-            get: () => localConfig.value ? Math.round(localConfig.value.volatility_threshold_percent * 100) : 0,
-            set: (val) => { if (localConfig.value) localConfig.value.volatility_threshold_percent = val / 100.0; }
+        const highJitterPercent = computed({
+            get: () => localConfig.value ? Math.round(localConfig.value.high_jitter_threshold * 100) : 0,
+            set: (val) => { if (localConfig.value) localConfig.value.high_jitter_threshold = val / 100.0; }
         })
-        const spreadJitterHighPercent = computed({
-            get: () => localConfig.value ? Math.round(localConfig.value.spread_jitter_high_threshold * 100) : 0,
-            set: (val) => { if (localConfig.value) localConfig.value.spread_jitter_high_threshold = val / 100.0; }
+        const lowJitterPercent = computed({
+            get: () => localConfig.value ? Math.round(localConfig.value.low_jitter_threshold * 100) : 0,
+            set: (val) => { if (localConfig.value) localConfig.value.low_jitter_threshold = val / 100.0; }
         })
-        const spreadJitterLowPercent = computed({
-            get: () => localConfig.value ? Math.round(localConfig.value.spread_jitter_low_threshold * 100) : 0,
-            set: (val) => { if (localConfig.value) localConfig.value.spread_jitter_low_threshold = val / 100.0; }
+        const spreadJitterRelPercent = computed({
+            get: () => localConfig.value ? Math.round(localConfig.value.spread_jitter_rel_threshold * 100) : 0,
+            set: (val) => { if (localConfig.value) localConfig.value.spread_jitter_rel_threshold = val / 100.0; }
         })
         
         // Auth state
@@ -241,9 +299,30 @@ createApp({
             if (num === undefined || num === null) return '';
             const absN = Math.abs(num);
             const sign = num < 0 ? '-' : '';
-            if (absN >= 10_000_000) return sign + (absN / 1_000_000).toFixed(3) + 'M';
-            if (absN >= 1_000_000) return sign + Math.round(absN / 1_000).toString() + 'K';
-            if (absN >= 100_000) return sign + (absN / 1_000).toFixed(2) + 'K';
+            if (absN >= 10_000_000) return sign + (absN / 1_000_000).toFixed(1) + 'M';
+            if (absN >= 1_000_000) return sign + (absN / 1_000_000).toFixed(2) + 'M';
+            if (absN >= 100_000) return sign + (absN / 1_000).toFixed(1) + 'K';
+            if (absN >= 1_000) return sign + (absN / 1_000).toFixed(1) + 'K';
+            return sign + absN.toString();
+        }
+
+        const formatPrice = (num) => {
+            if (num === undefined || num === null) return '';
+            const absN = Math.abs(num);
+            const sign = num < 0 ? '-' : '';
+            if (absN >= 1_000_000) return sign + (absN / 1_000_000).toFixed(3) + 'M';
+            if (absN >= 100_000) return sign + (absN / 1_000).toFixed(3) + 'K';
+            return sign + absN.toLocaleString();
+        }
+
+        const formatCapital = (num) => {
+            if (num === undefined || num === null) return '';
+            const absN = Math.abs(num);
+            const sign = num < 0 ? '-' : '';
+            if (absN >= 10_000_000) return sign + (absN / 1_000_000).toFixed(1) + 'M';
+            if (absN >= 1_000_000) return sign + (absN / 1_000_000).toFixed(2) + 'M';
+            if (absN >= 100_000) return sign + (absN / 1_000).toFixed(1) + 'K';
+            if (absN >= 1_000) return sign + (absN / 1_000).toFixed(1) + 'K';
             return sign + absN.toString();
         }
 
@@ -251,7 +330,8 @@ createApp({
             if (num === undefined || num === null) return '';
             const absN = Math.abs(num);
             const sign = num < 0 ? '-' : '';
-            if (absN >= 10_000_000) return sign + (absN / 1_000_000).toFixed(3) + 'M';
+            if (absN >= 10_000_000) return sign + (absN / 1_000_000).toFixed(1) + 'M';
+            if (absN >= 1_000_000) return sign + (absN / 1_000_000).toFixed(2) + 'M';
             if (absN >= 1_000) return sign + Math.floor(absN / 1_000).toString() + 'K';
             return sign + Math.floor(absN).toString();
         }
@@ -356,9 +436,28 @@ createApp({
 
         let lastReportPayloadStr = ""
 
+        const autoRefresh = ref(true)
+        const autoRefreshPulsing = ref(false)
+        let pollingInterval = null;
+        const startPolling = () => {
+            if (pollingInterval) return;
+            console.log('🔌 Starting Auto-Refresh polling (60s intervals)...');
+            pollingInterval = setInterval(() => {
+                if (autoRefresh.value && isAuthenticated.value) {
+                    console.log('🔄 Auto-refreshing table...');
+                    autoRefreshPulsing.value = true
+                    fetchReport().then(() => {
+                        setTimeout(() => { autoRefreshPulsing.value = false }, 1500)
+                    })
+                }
+            }, 60000)
+        }
+
         const fetchReport = async () => {
             if (!isAuthenticated.value) return
             loading.value = true
+            console.log('🔄 Fetching GE market report...');
+            console.time('Network: fetchReport');
             try {
                 const payload = {
                     config: localConfig.value,
@@ -370,14 +469,19 @@ createApp({
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
                 })
-                items.value = await response.json() || []
+                console.time('UI: jsonParse');
+                const rawItems = await response.json() || []
+                console.timeEnd('UI: jsonParse');
+                items.value = rawItems
                 lastReportPayloadStr = JSON.stringify(payload)
+                startPolling() // Ensure polling is running once authenticated
             } catch (err) {
                 if (err.message !== "unauthorized") {
                     showError(err.message, err.stackTrace)
                 }
             } finally {
                 loading.value = false
+                console.timeEnd('Network: fetchReport');
             }
         }
 
@@ -458,7 +562,7 @@ createApp({
                 const dataChanged = syncData.fetched_new_data
                 const payloadChanged = currentPayloadStr !== lastReportPayloadStr
 
-                if (dataChanged || payloadChanged || items.value.length === 0) {
+                if (dataChanged || payloadChanged) {
                     if (currentTab.value === 'report') await fetchReport()
                 }
             } catch (err) {
@@ -610,6 +714,14 @@ createApp({
         })
 
         onMounted(async () => {
+            console.time('UI: appMount');
+            const urlParams = new URLSearchParams(window.location.search)
+            if (urlParams.has('page')) currentPage.value = parseInt(urlParams.get('page')) || 1
+            if (urlParams.has('limit')) itemsPerPage.value = parseInt(urlParams.get('limit')) || 50
+            if (urlParams.has('sort')) sortConfig.value.key = urlParams.get('sort')
+            if (urlParams.has('dir')) sortConfig.value.direction = urlParams.get('dir')
+            if (urlParams.has('q')) searchInput.value = urlParams.get('q')
+
             // Initialize theme
             const savedTheme = localStorage.getItem('ge_analyzer_theme')
             if (savedTheme === 'light') {
@@ -633,25 +745,27 @@ createApp({
                     localConfig.value = defaults
                 }
 
-                fetchItemDict()
-                fetchReport()
+                await fetchItemDict()
+                await fetchReport()
             }
+            console.timeEnd('UI: appMount');
         })
 
         return {
             currentTab, items, itemDict, flipsHistory, failedSellsHistory, localConfig,
-            sortedItems, sortConfig, sortBy,
+            displayedItems, sortConfig, sortBy, searchInput, onSearchInput,
+            currentPage, itemsPerPage, totalPages,
             loading, submitting, error, errorStack, showStack, success, selectedFile,
             isAuthenticated, loginForm, login, logout,
             isDarkMode, toggleTheme,
             showFlipModal, showFailedModal, selectedItem,
             flipForm, failedForm, manualFlipForm, manualFailedForm,
-            formatNumber, formatProfit, getGoldColorClass, getPricesLink, formatDate, fetchReport, fetchHistory, syncPrices, syncMetadata,
+            formatNumber, formatPrice, formatCapital, formatProfit, getGoldColorClass, getPricesLink, formatDate, fetchReport, fetchHistory, syncPrices, syncMetadata,
             handleFileUpload, restoreBackup, recordFlip, recordFailedBuy, closeModals,
             submitFlip, submitFailedBuy, submitManualFlip, submitManualFailedBuy,
             resetToDefaults, exportUserFile, importUserFile,
             clearError,
-            targetRoiPercent, volatilityThresholdPercentUI, spreadJitterHighPercent, spreadJitterLowPercent
+            targetRoiPercent, highJitterPercent, lowJitterPercent, spreadJitterRelPercent, autoRefresh, autoRefreshPulsing
         }
     }
 }).mount('#app')
